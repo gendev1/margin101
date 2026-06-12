@@ -1,0 +1,213 @@
+import PayoffChart from '../components/PayoffChart.jsx'
+import { SpreadLab } from '../components/labs.jsx'
+import { Callout, Formula, Panel, Reveal, RuleRef } from '../components/ui.jsx'
+
+export default function M3() {
+  return (
+    <>
+      <p>
+        A <strong>spread</strong> is a short option plus a long option that limits its damage.
+        The margin logic flips from “stress scenario” to a sharper question:{' '}
+        <em>what is the absolute worst this combination can lose?</em> That number is the{' '}
+        <strong>MPL — maximum potential loss</strong> — and it's the engine's{' '}
+        <code>mpl(legs)</code> function.
+      </p>
+
+      <h3>The vertical spread, fully worked (manual p.42)</h3>
+      <RuleRef rule="vertical_spread" test="TestVerticalCallSpread_p42" page="p.42" />
+      <p>Long Nov 125 call @ $3.80, short Nov 120 call @ $8.40, stock at 128.50:</p>
+      <PayoffChart
+        legs={[
+          { kind: 'call', side: 1, K: 125, P: 3.8 },
+          { kind: 'call', side: -1, K: 120, P: 8.4 },
+        ]}
+        lo={105} hi={145} showTail
+        annotations={[{ u: 128.5, label: 'U now' }]}
+        title="Net credit $4.60; worst case is the $5 strike gap less the credit" />
+      <p>
+        Walk the two tails. U below 120: both calls die, you keep the net $460 credit. U above
+        125: the short loses dollar-for-dollar but the long gains dollar-for-dollar —{' '}
+        <em>the long call is a perfect hedge above 125</em>. The damage zone is only the
+        120–125 gap: at any U ≥ 125 the structural loss is (125 − 120) × 100 = <strong>$500</strong>.
+        That's the MPL, and no stress scenario is needed — it's arithmetic, not probability.
+      </p>
+      <Formula>{`gross = min( naked_short_req , mpl(legs) ) + long_premium_paid
+      = min( $3,410 ,  $500 )  +  $380   =  $880     ← Requirement
+proceeds = short premium received        =  $840     ← AppliedProceeds
+cash_call = 880 − 840                    =  $ 40     ← CashCall`}</Formula>
+      <p>
+        Three things to internalize from this formula, because they repeat everywhere:
+      </p>
+      <ul>
+        <li><strong><code>min(naked, MPL)</code></strong> — a hedged short can never be margined worse
+          than the same short naked. If the hedge is garbage (long strike absurdly far away), the
+          naked number quietly takes over.</li>
+        <li><strong>+ long premium</strong> — the gross convention counts paying for your long as part
+          of the requirement (you bought it, the $380 is spent).</li>
+        <li><strong>proceeds as a separate line</strong> — the $840 collected offsets at the cash
+          level, not inside the requirement. Keeping gross and net separate is what lets limen
+          match the manual's display <em>and</em> compute the real out-of-pocket number.</li>
+      </ul>
+
+      <h4>The no-loss spread (manual p.39)</h4>
+      <RuleRef rule="vertical_spread" test="TestVerticalPutSpread_p39" page="p.39" />
+      <p>
+        Long 250 put @ $3, short 240 put @ $0.95. The long strike is <em>above</em> the short —
+        at every price the long put is worth at least as much as the short owes. MPL = 0. The
+        requirement collapses to just paying for the long: gross $300, proceeds $95, cash $205.
+        A position with no structural risk margins at its cost. The system is coherent.
+      </p>
+
+      <h4>Drive it</h4>
+      <SpreadLab />
+
+      <h3>The time dimension — calendars, diagonals, and the trap</h3>
+      <RuleRef rule="vertical_spread (expiration_order)" test="TestGenericCombo_ReverseCalendarRejected" />
+      <p>
+        Everything above silently assumed both legs die at the same time. Add time and a new
+        failure mode appears. The hedge only protects you <strong>while it's alive</strong>:
+      </p>
+      <Panel title="Calendar vs reverse calendar — same legs, opposite safety">
+        <table>
+          <thead><tr><th></th><th>Legal calendar/diagonal</th><th>Reverse calendar</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>Shape</strong></td>
+              <td>short leg expires <em>first</em>, long survives it</td>
+              <td>short leg expires <em>after</em> the long dies</td>
+            </tr>
+            <tr>
+              <td><strong>Timeline</strong></td>
+              <td><code>short ━━━━┫ &nbsp; long ━━━━━━━━┫</code></td>
+              <td><code>long ━━━━┫ &nbsp; short ━━━━━━━━┫</code></td>
+            </tr>
+            <tr>
+              <td><strong>Tail risk</strong></td>
+              <td>bounded at all times — the long outlives every obligation</td>
+              <td>after the long dies you hold a <em>naked short</em>; U→∞ unbounded</td>
+            </tr>
+            <tr>
+              <td><strong>Engine verdict</strong></td>
+              <td>prices as a spread</td>
+              <td>refuses — the shared-expiry MPL math would be a lie</td>
+            </tr>
+          </tbody>
+        </table>
+      </Panel>
+      <p>
+        This is why <code>vertical_spread</code> carries{' '}
+        <code>expiration_order: {'{'} earlier: short_leg, later: long_leg {'}'}</code> and why{' '}
+        <code>mpl()</code> hard-errors when a short outlives a same-type long. A
+        shared-expiry payoff model applied to a reverse calendar produces a confidently wrong
+        bounded number for an unbounded position — the worst class of bug this system can have.
+        It's also per-option-type: a surviving short <em>put</em> under a long <em>call</em> is a
+        different (bounded) story than a surviving short call.
+      </p>
+
+      <h3>Short straddles &amp; strangles — two shorts, one stress</h3>
+      <RuleRef rule="short_strangle_or_straddle" />
+      <PayoffChart
+        legs={[
+          { kind: 'put', side: -1, K: 100, P: 3 },
+          { kind: 'call', side: -1, K: 100, P: 2.5 },
+        ]}
+        lo={60} hi={145} showTail
+        title="Short 100 straddle — premium $5.50 collected, danger on both sides" />
+      <Formula>{`requirement = max( naked_put_req , naked_call_req )
+            + premium of the OTHER side`}</Formula>
+      <p>
+        Why not the sum of both naked requirements? Because the stock ends up at <em>one</em>{' '}
+        price — it cannot simultaneously crash (hurting the put) and moon (hurting the call).
+        One stress scenario can only hit one side, so you margin the worse side in full and
+        carry the other side's premium on top. Worked: short 100-put @ $3 / short 100-call @
+        $2.50 at U=100 → put side (3 + 20) × 100 = $2,300 beats call side $2,250; add the
+        call's $250 premium → <strong>$2,550</strong>.
+      </p>
+      <Callout kind="warn">
+        <p>
+          A short strangle has <em>no cash-account treatment at all</em> (<code>permitted: false</code>):
+          the put wants cash collateral, the call wants shares — no single deposit secures both.
+          Not every structure has a price in every account type; “not permitted” is a verdict,
+          not a missing feature.
+        </p>
+      </Callout>
+
+      <h3>War stories from the corpus — what this module's math broke on</h3>
+      <p>
+        Your own 1000-case corpus found three defects in exactly this module's territory. They're
+        worth studying as cases because each is a <em>category</em> of bug, not a one-off:
+      </p>
+      <Panel title="Finding 1 — the unpadded date (silent NoRule)">
+        <p>
+          Expiration ordering is enforced by <em>string comparison</em>, sound only for zero-padded
+          ISO dates. Feed it <code>"2026-6-19"</code> instead of <code>"2026-06-19"</code> and
+          lexical order flips: <code>"2026-12-01" &lt; "2026-6-19"</code> because{' '}
+          <code>"1" &lt; "6"</code> character-by-character. A legal calendar silently becomes a
+          constraint miss → NoRule, with no signal that the <em>data</em> was the problem. The
+          category: <strong>a representation invariant the formula assumes but no guard
+          enforces</strong>. The fix (corpus-remediation epic): validate date format in{' '}
+          <code>requires</code>, so a malformed date is a loud error instead of a silent
+          mis-ordering.
+        </p>
+      </Panel>
+      <Panel title="Finding 2 — the asymmetric strangle (undocumented decision)">
+        <p>
+          Short 2 puts + short 1 call matches <code>short_strangle_or_straddle</code> — the slots
+          bind one leg each, but qty 2 vs 1 means the “max side + other premium” formula is
+          pricing a shape the manual never illustrated. Is that conservative, correct, or
+          under-margined? The corpus's real finding: <strong>nobody had decided</strong> — the
+          rule's behavior on asymmetric quantities was an accident of the formula, not a choice.
+          The category: a rule silently generalizing past its cited examples. The remedy is a
+          decision (document or restrict), not a formula fix.
+        </p>
+      </Panel>
+      <Panel title="Finding 3 — the verdict asymmetry (call vs put side)">
+        <p>
+          A reverse calendar on the <em>call</em> side fell through to NoRule while the identical
+          shape on the <em>put</em> side hard-errored — two different verdicts for one defect
+          class, purely because of evaluation-order luck. Recon buckets then file them in
+          different rows. Locked fix (corpus-remediation D2): mixed-datedness with a short is a
+          deterministic hard error from <em>both</em> soundness guards, both option types. The
+          category: <strong>the same input defect must produce the same verdict everywhere</strong>,
+          or the verdict taxonomy stops being trustworthy.
+        </p>
+      </Panel>
+      <Callout kind="tip">
+        <p>
+          Pattern across all three: the formulas were right; the <em>edges of their
+          applicability</em> were wrong or undecided. That's the recurring lesson of this whole
+          system — margin bugs live at the boundaries (formats, quantities, orderings), which is
+          why <code>requires</code> guards and verdict semantics get as much review attention as
+          arithmetic.
+        </p>
+      </Callout>
+
+      <h3>Self-check</h3>
+      <Reveal q="Long 95C @ $7, short 90C @ $10, U=96. Gross, proceeds, cash?">
+        <p>MPL = (95−90) × 100 = $500 (short below long: damage zone is the gap).
+          Naked short-90C = (10 + max(0.20×96 − 0, 9.6)) × 100 = $2,920. Gross = min(2920, 500)
+          + 700 = <strong>$1,200</strong>; proceeds <strong>$1,000</strong>; cash <strong>$200</strong>.</p>
+      </Reveal>
+      <Reveal q="Why does min(naked, MPL) never under-margin?">
+        <p>MPL is the true worst loss of the <em>pair</em> when both legs share an expiry — a
+          tautological upper bound. If MPL is somehow huge (bad hedge), the naked requirement
+          caps it, and the naked formula already covers the short standing alone. Each branch
+          is independently a valid ceiling for what the combination can lose. (Strictly: this
+          relies on the expiry ordering — which is exactly why the rule requires it.)</p>
+      </Reveal>
+      <Reveal q="Short Jan 100C + long Mar 100C. Spread or not? What if the legs swap expirations?">
+        <p>Short expires first, long survives: a legal calendar — prices as a vertical
+          (expiration_order satisfied, MPL sound). Swapped (long Jan, short Mar): after January
+          you'd hold a naked Mar call the spread math never saw — reverse calendar, engine
+          refuses to price it as a spread.</p>
+      </Reveal>
+      <Reveal q="Why is '2026-6-19' dangerous rather than just ugly?">
+        <p>Date ordering is done as string comparison, which is only correct for zero-padded
+          ISO dates. Unpadded months sort wrong ("2026-12-…" &lt; "2026-6-…"), so the
+          expiration constraint can silently flip — a legal calendar becomes NoRule or, worse,
+          an illegal ordering looks legal. A format the formula assumes must be a format a guard
+          enforces.</p>
+      </Reveal>
+    </>
+  )
+}

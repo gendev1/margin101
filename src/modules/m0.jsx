@@ -1,0 +1,202 @@
+import { Callout, Formula, Panel, Reveal } from '../components/ui.jsx'
+
+export default function M0() {
+  return (
+    <>
+      <p>
+        Start here even if you skim everything else. This module defines every symbol the
+        rulebook, the tests, and the rest of this course use. Nothing in it requires prior
+        trading knowledge — it is the vocabulary sheet for the codebase you already maintain.
+      </p>
+
+      <h3>What an option literally is</h3>
+      <p>
+        An <strong>option</strong> is a contract about a stock (the <em>underlying</em>).
+        It gives its <strong>buyer</strong> a right, and puts its <strong>seller</strong> under
+        an obligation:
+      </p>
+      <table>
+        <thead><tr><th></th><th>Buyer (long) gets the right to…</th><th>Seller (short) is obligated to…</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Call</strong></td><td>buy 100 shares at a fixed price K</td><td>sell 100 shares at K if asked</td></tr>
+          <tr><td><strong>Put</strong></td><td>sell 100 shares at a fixed price K</td><td>buy 100 shares at K if asked</td></tr>
+        </tbody>
+      </table>
+      <p>
+        The buyer pays the seller a price for this right, called the <strong>premium</strong>.
+        The right expires on a fixed date. One standard contract covers <strong>100 shares</strong> —
+        that 100 is the <em>multiplier</em>, and it is why every formula in the rulebook ends
+        with <code>* qty * mult</code>: option prices are quoted per share, but obligations are
+        per contract.
+      </p>
+      <Callout kind="tip">
+        <p>
+          A call is “I might want to buy from you at K.” A put is “I might want to sell to you
+          at K.” The buyer exercises only when it benefits them — so the seller participates
+          only in the losing side of the bet. That asymmetry is the entire reason margin exists.
+        </p>
+      </Callout>
+
+      <h3>The symbols (this is the cheat sheet)</h3>
+      <p>
+        These are the exact field names a leg carries in <code>internal/engine</code> and in
+        every CEL formula in <code>rules/cboe_baseline.yaml</code>:
+      </p>
+      <div className="anatomy">
+        <div className="card"><div className="sym">U</div><div className="name">Underlying price</div>
+          <div className="desc">Current market price of the stock/ETF/index the option is written on. “U=95” means the stock trades at $95 right now.</div></div>
+        <div className="card"><div className="sym">K</div><div className="name">Strike price</div>
+          <div className="desc">The fixed price written into the contract — what the buyer may buy (call) or sell (put) at. Never moves.</div></div>
+        <div className="card"><div className="sym">P / P0</div><div className="name">Premium per share</div>
+          <div className="desc">The option's own price. P0 = premium when the position was opened (used for initial margin); P = current premium (used for maintenance).</div></div>
+        <div className="card"><div className="sym">qty</div><div className="name">Contracts</div>
+          <div className="desc">How many option contracts. “Short 2 puts” → qty=2.</div></div>
+        <div className="card"><div className="sym">mult</div><div className="name">Multiplier</div>
+          <div className="desc">Shares per contract — 100 for standard equity options. Dollar impact of anything per-share = value × qty × mult.</div></div>
+        <div className="card"><div className="sym">side</div><div className="name">Long / Short</div>
+          <div className="desc">Long = you bought it (own the right). Short = you sold/wrote it (carry the obligation).</div></div>
+        <div className="card"><div className="sym">expiration</div><div className="name">Expiry date</div>
+          <div className="desc">When the right dies. After expiry an option is worth exactly its intrinsic value or nothing.</div></div>
+        <div className="card"><div className="sym">class / lev</div><div className="name">Rate class & leverage</div>
+          <div className="desc">Which row of the rates table applies (equity 20/10, broad index 15/10…) and the ETF leverage factor (2× ETF → lev=2.0).</div></div>
+      </div>
+
+      <h3>Moneyness: ITM, OTM, intrinsic value</h3>
+      <p>
+        <strong>Intrinsic value</strong> is what exercising would be worth <em>right now</em>:
+      </p>
+      <Formula>{`intrinsic_call(K, U) = max(0, U − K)   // right to buy at K, worth U−K when U above K
+intrinsic_put(K, U)  = max(0, K − U)   // right to sell at K, worth K−U when U below K`}</Formula>
+      <ul>
+        <li><strong>ITM (in the money)</strong> — intrinsic &gt; 0. A 90-strike call with the stock at 95 is $5 ITM.</li>
+        <li><strong>OTM (out of the money)</strong> — intrinsic = 0. Same call with the stock at 85 is $5 OTM.</li>
+        <li><strong>ATM (at the money)</strong> — U ≈ K.</li>
+      </ul>
+      <p>
+        Why does an OTM option cost anything at all? Because U can still move before expiry.
+        Premium = intrinsic value + time value. Margin formulas mostly care about intrinsic —
+        the <code>max(0, …)</code> patterns you see everywhere in the YAML are intrinsic-value
+        and OTM-distance calculations.
+      </p>
+
+      <h3>The two account types</h3>
+      <table>
+        <thead><tr><th></th><th>Cash account</th><th>Margin account</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Idea</strong></td>
+            <td>Pay for everything in full, up front. The broker takes no credit risk.</td>
+            <td>The broker extends credit against collateral. Positions can be partially financed.</td>
+          </tr>
+          <tr>
+            <td><strong>Consequence</strong></td>
+            <td>Risky structures are simply <em>not permitted</em> (you'll see <code>permitted: false</code> in the cash blocks).</td>
+            <td>Everything is permitted if you post enough collateral — the rulebook computes how much.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Every rule in <code>cboe_baseline.yaml</code> has separate <code>cash:</code> and{' '}
+        <code>margin:</code> formula blocks for exactly this reason.
+      </p>
+
+      <h3>Initial vs maintenance — the two questions margin answers</h3>
+      <ul>
+        <li><strong>Initial requirement</strong> — how much equity must you have to <em>open</em> the
+          position? Set by Regulation T (the Fed) — the famous “50% for stock.” Uses <code>P0</code>,
+          the premiums at open.</li>
+        <li><strong>Maintenance requirement</strong> — how much equity must you have to <em>keep</em> it,
+          re-checked continuously as prices move? Set by FINRA/exchange rules — “25% for long stock.”
+          Uses <code>P</code>, current premiums. Fall below it and the broker issues a{' '}
+          <strong>margin call</strong>: deposit more or be liquidated.</li>
+      </ul>
+
+      <h3>The three numbers limen returns</h3>
+      <p>Every evaluation produces a <code>Result</code> with three dollar figures. Worked
+        example — the manual's p.42 vertical call spread:</p>
+      <Panel title="Result anatomy — vertical call spread, Cboe manual p.42">
+        <div className="ledger">
+          <div className="row"><span>Requirement (gross)</span><span>$880.00</span></div>
+          <div className="row"><span>AppliedProceeds (premium received)</span><span className="pos">− $840.00</span></div>
+          <div className="row total"><span>CashCall (what you must deposit)</span><span className="neg">$40.00</span></div>
+        </div>
+      </Panel>
+      <ul>
+        <li><strong>Requirement</strong> — the gross collateral the rule demands. This matches the
+          number printed in the Cboe manual (“Margin Requirement: $880”).</li>
+        <li><strong>AppliedProceeds</strong> — money you <em>received</em> for selling options, credited
+          against the requirement. When you sell (write) an option, the premium lands in your account
+          immediately — the rules let it offset what you owe.</li>
+        <li><strong>CashCall = Requirement − AppliedProceeds</strong> — the net cash that must actually
+          come out of your pocket.</li>
+      </ul>
+      <Callout>
+        <p>
+          The manual sometimes displays the gross number, sometimes the net. limen always returns
+          all three so the integrating service can present whichever convention it needs. When you
+          compare against any external number, first establish <em>which of the three</em> it is.
+        </p>
+      </Callout>
+
+      <h3>Why margin exists at all (the broker's problem)</h3>
+      <p>
+        When a customer shorts an option, the broker is on the hook if the customer can't pay.
+        The margin requirement answers one question from the broker's seat:{' '}
+        <em>“if this position moves against the customer overnight, how much of their own money
+        must already be in the account so I don't eat the loss?”</em> Every formula you will see
+        is some estimate of “a bad move” — 20% of the underlying, the maximum possible loss of a
+        spread, 10% of a strike — chosen by regulators to be conservative but tradable.
+      </p>
+
+      <h3>The vocabulary limen deliberately doesn't own — yet</h3>
+      <p>
+        You will hear these words around every margin conversation. They are <em>real</em>, they
+        are on the platform map, and limen intentionally computes none of them today. Knowing
+        which side of the boundary each lives on is itself rulebook literacy:
+      </p>
+      <table>
+        <thead><tr><th>Term</th><th>What it is</th><th>Where it lives</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Equity</strong></td><td>account value minus what's borrowed — the customer's own money at stake</td><td>account aggregation (built)</td></tr>
+          <tr><td><strong>Excess equity</strong></td><td>equity above the maintenance requirement — the cushion</td><td>derivable from limen's outputs</td></tr>
+          <tr><td><strong>SMA</strong></td><td>the Reg-T “Special Memorandum Account” — a day-over-day ledger of credits that determines what you may buy next. The manual's “SMA debit $40” on p.42 is this.</td><td><em>not built</em> — a stateful ledger on top of CashCall (plane 5)</td></tr>
+          <tr><td><strong>Buying power</strong></td><td>how much the customer can purchase right now, derived from SMA/excess equity (≈2× for Reg-T stock)</td><td><em>not built</em> — same ledger</td></tr>
+          <tr><td><strong>Margin call types</strong></td><td>Fed call (initial shortfall), maintenance call, day-trade call — different deadlines and remedies</td><td><em>not built</em> — host workflow (plane 5)</td></tr>
+          <tr><td><strong>Settlement / assignment</strong></td><td>exercise picks a short at random via the OCC; T+1 stock settlement timing</td><td>upstream of limen — positions arrive already settled</td></tr>
+        </tbody>
+      </table>
+      <Callout kind="warn">
+        <p>
+          The trap this table prevents: someone asks “can limen tell me the buying power?” and the
+          tempting answer is “sure, it's basically excess equity times two.” It is not — buying
+          power depends on the SMA ledger, which has <em>memory</em> (yesterday's balance carries
+          forward and never shrinks from market moves alone). A requirements engine can't answer
+          a ledger question, and pretending it can is the silent-wrong-number failure mode applied
+          to account state. limen computes the <em>requirement events</em>; the ledger that
+          interprets them is a separate, stateful system.
+        </p>
+      </Callout>
+
+      <h3>Self-check</h3>
+      <Reveal q="You are short 3 XYZ 50-strike puts, premium $1.20, stock at $54. Translate every symbol.">
+        <p>side=short, kind=option, option_type=put, K=50, P=1.20, qty=3, mult=100, U=54.
+          The put is OTM by $4 (intrinsic_put = max(0, 50−54) = 0). You received
+          3 × 100 × $1.20 = $360 of premium, and you are obligated to buy 300 shares at $50
+          if assigned.</p>
+      </Reveal>
+      <Reveal q="A call with K=120 when U=128.50 — ITM or OTM, and by how much?">
+        <p>ITM by $8.50: intrinsic_call = max(0, 128.50 − 120) = 8.50. Per contract that's
+          $850 of intrinsic value.</p>
+      </Reveal>
+      <Reveal q="Requirement $2,300, AppliedProceeds $550. What's the CashCall, and what does it mean physically?">
+        <p>$1,750. The rule demands $2,300 of collateral; $550 of option premium you collected
+          counts toward it; you must come up with the remaining $1,750 in cash or equity.</p>
+      </Reveal>
+      <Reveal q="Why can't limen compute buying power today, in one sentence?">
+        <p>Buying power comes from the SMA ledger, which carries state forward day over day —
+          limen is a pure function over a snapshot and deliberately has no memory; the ledger is
+          a separate plane-5 system that consumes limen's CashCall events.</p>
+      </Reveal>
+    </>
+  )
+}
