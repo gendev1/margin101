@@ -171,7 +171,7 @@ function Plane({ p }: { p: PlaneDef }) {
         <div className="h-[5px] max-w-[200px] flex-1 overflow-hidden rounded-sm bg-secondary">
           <div className="h-full bg-gradient-to-r from-primary to-good" style={{ width: pct + '%' }} />
         </div>
-        <span className="font-mono text-[11.5px] tabular-nums text-muted-foreground">{pct}%</span>
+        <span className="font-mono text-meta tabular-nums text-muted-foreground">{pct}%</span>
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(248px,1fr))] gap-2.5">
         {p.items.map(it => (
@@ -182,7 +182,7 @@ function Plane({ p }: { p: PlaneDef }) {
               STATUS[it.s].edge
             )}
           >
-            <div className="flex items-baseline justify-between gap-2 text-[13.5px] font-semibold">
+            <div className="flex items-baseline justify-between gap-2 text-data font-semibold">
               {it.name}
               <span className={cn('whitespace-nowrap rounded-full px-2 py-px font-mono text-[9.5px] uppercase tracking-[0.06em]', STATUS[it.s].chip)}>
                 {STATUS[it.s].label}
@@ -190,7 +190,7 @@ function Plane({ p }: { p: PlaneDef }) {
             </div>
             <div className="mt-1 text-xs leading-normal text-muted-foreground">{it.does}</div>
             <div
-              className="mt-1.5 text-[11.5px] leading-normal text-warn/70 [&_b]:font-semibold [&_b]:text-warn"
+              className="mt-1.5 text-meta leading-normal text-warn/70 [&_b]:font-semibold [&_b]:text-warn"
               dangerouslySetInnerHTML={{ __html: it.future }}
             />
           </div>

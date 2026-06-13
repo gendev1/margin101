@@ -1,0 +1,91 @@
+Everything so far lives in the equities world. Futures are a different country with different margin law, and their methodology — **SPAN** — is the scenario-grid idea again, but with one enormous practical difference that changes what “implementing it” even means. First futures margin from zero (it's genuinely different), then SPAN itself.
+
+### Futures margin is a different kind of thing
+
+Buying stock costs money; buying a *future* costs nothing — it's a binding agreement to transact later at today's agreed price. So futures “margin” isn't a down payment on a purchase. It's a **performance bond**: a good-faith deposit proving you can absorb the contract's daily swings.
+
+| | Equities (Reg-T world) | Futures |
+|---|---|---|
+| **What margin is** | equity backing a loan / an obligation | a performance bond held by the clearinghouse |
+| **Who sets it** | Fed + FINRA + exchange + house | the exchange (CME etc.), per contract, in dollars |
+| **Daily mechanics** | unrealized P&L floats in equity | **variation margin**: P&L settles in CASH every single day |
+| **Typical size** | 50% of position value | 3–12% of notional — leverage is the product |
+
+That daily cash settlement (“mark-to-market”) is why futures margin can be so much smaller than equity margin: the clearinghouse never lets losses accumulate. Yesterday's loss was already paid in cash this morning; the bond only needs to cover *roughly one more bad day*. Margin size ≈ horizon of un-settled risk — the same principle that made long-dated options better collateral than short-dated ones, wearing a different coat.
+
+### SPAN — the same grid idea, published as data
+
+**SPAN** (Standard Portfolio Analysis of Risk, CME, 1988 — since evolved into SPAN 2) computes the bond for a portfolio of futures and options-on-futures. Like TIMS: shock, revalue, worst case. Unlike TIMS in one decisive way: **the exchange publishes the entire calculation as data files.**
+
+<Formula>{`the 16 SPAN scenarios (per contract family):
+  price moves:  0, ±1/3 range, ±2/3 range, ±full range   (7 levels)
+  × vol moves:  up, down                                  (×2 = 14)
+  + 2 extreme scenarios: ±2× range (charged at ~35% weight)
+
+the exchange's DAILY RISK PARAMETER FILE contains, per contract:
+  the price-scan range ($), vol-scan range, every option's value
+  in all 16 scenarios (the "risk array"), spread charges, credits
+
+scanning risk = worst scenario loss across the portfolio's risk arrays
++ inter-month spread charge   (long Mar / short Jun ≠ riskless: curve risk)
++ short option minimum        (deep-OTM shorts never margin to ~zero)
+− inter-commodity credit      (crude vs heating oil: defined % offset)
+= SPAN requirement`}</Formula>
+
+Read the consequence carefully: the exchange computed every option's value in every scenario *for you* and ships it nightly. Implementing SPAN is therefore mostly **faithfully consuming files** — parse the risk parameter file, look up your positions' arrays, sum scenario columns across the portfolio, take the worst, apply the listed charges and credits. No pricing model on your side, no vol surface pipeline. Where TIMS implementation risk is *“is the model right?”*, SPAN implementation risk is *“did you parse a 30-year-old fixed-width file format correctly and apply the right charge in the right order?”* — data engineering, not quantitative modeling.
+
+### Worked miniature — one risk array
+
+<Formula>{`crude oil future, price-scan range = $4,000/contract
+position: short 1 call on that future (exchange's published array, $ loss):
+
+scenario:    price  −4k   −2.7k  −1.3k    0    +1.3k  +2.7k  +4k    vol
+loss:               −800   −560   −210   +150   +700  +1,600 +2,700  ↑/↓ variants…
+                                                              ────
+portfolio of 1 position → scanning risk = worst column = $2,700
++ short option minimum (say $250 floor — already exceeded, no-op)
+= SPAN requirement ≈ $2,700`}</Formula>
+
+With more positions you sum each scenario column *across* positions first, then take the worst total — which is exactly how netting happens (your long future's +$4,000 in the up-scenario cancels the short call's loss there). Same offsetting magic as TIMS, delivered by column addition over published arrays.
+
+### The strategic call for limen — buy, build, or skip
+
+- **Skip** while the product has no futures: SPAN is pure scope until then. On [the map](#m11) it's the one box explicitly marked optional.
+- **If futures arrive**, the honest decision inputs: clearing brokers and vendors already compute SPAN on every account nightly (you may only need to *reconcile* against it — a recon-spec problem, already your strength); the file-consumption work is unglamorous but bounded; SPAN 2's migration is ongoing industry-wide, so any build must track a moving format.
+- **The architecture cost is low either way:** like TIMS, SPAN is just another baseline producing a requirement per account under the same policy layer — the swappable-baseline design absorbs it without new seams.
+
+<Callout kind="tip">
+  <p>
+    Classification (<a href="#m13">the playbook</a>): TIMS is a <em>numerical model</em>{' '}
+    problem; SPAN is a <em>data plane</em> problem; futures variation margin is a{' '}
+    <em>stateful ledger</em> problem (daily cash settlement is bookkeeping —{' '}
+    <a href="#m17">SMA's cousin</a>). Three systems that look like one “futures margin”
+    bucket from a distance, classifying into three different disciplines up close — the
+    playbook earning its keep.
+  </p>
+</Callout>
+
+### Self-check
+
+<Reveal q="Why can a futures performance bond be 5% when stock margin is 50%?">
+  <p>Variation margin settles all P&amp;L in cash daily, so the bond only covers ~one day
+    of un-settled move (the scan range), not the accumulated drift of an open-ended loan.
+    Smaller un-settled horizon → smaller bond. The 50% stock number carries days-to-weeks
+    of unrealized swing plus loan risk; the 5% future carries one day.</p>
+</Reveal>
+<Reveal q="Why does SPAN charge an inter-month spread (long Mar / short Jun crude) instead of treating it as flat?">
+  <p>The two contracts track the same commodity but different delivery dates — the price{' '}
+    <em>curve</em> between them can twist (storage, seasonality, supply shocks at one
+    horizon). Scanning risk alone would net them to ~zero because both arrays move
+    together under parallel shocks; the spread charge re-introduces the curve risk the
+    parallel scenarios can't see. It's the SPAN version of “the hedge isn't perfect just
+    because the underlying matches.”</p>
+</Reveal>
+<Reveal q="Your firm adds micro futures for customers. What's the first build decision, per this module?">
+  <p>Whether to compute SPAN at all — or consume the clearing broker's nightly SPAN and
+    build only the recon + ledger sides (verify their number per the recon spec; handle
+    variation-margin cash flows in the account ledger). Given SPAN is published data and
+    vendors are mature, compute-it-yourself needs a justification like intraday
+    requirements or pre-trade checks on futures — otherwise it's the rare case where the
+    oracle is so standardized that consuming beats building.</p>
+</Reveal>

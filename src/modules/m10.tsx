@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import PayoffChart from '@/components/PayoffChart'
-import { Formula, Reveal } from '@/components/shared'
+import { CardGrid, Formula, Reveal } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -129,7 +129,7 @@ function PositionCard({ d, showChart }: { d: Drill; showChart: boolean }) {
         <MetaChip><b className="text-foreground">{d.account}</b> account</MetaChip>
         <MetaChip><b className="text-foreground">{d.phase}</b></MetaChip>
       </div>
-      <table className="w-full border-collapse text-[13.5px]">
+      <table className="w-full border-collapse text-data">
         <tbody>{(p.legs ?? []).map((leg, i) => <LegRow key={i} leg={leg} />)}</tbody>
       </table>
       {legs && range && (
@@ -138,7 +138,7 @@ function PositionCard({ d, showChart }: { d: Drill; showChart: boolean }) {
             annotations={[{ u: p.U, label: 'U now' }]} />
         </div>
       )}
-      <div className="mt-2.5 font-mono text-[10.5px] text-muted-foreground/70">
+      <div className="mt-2.5 font-mono text-label text-muted-foreground/70">
         corpus · {d.family} · {d.name}
       </div>
     </Card>
@@ -147,7 +147,7 @@ function PositionCard({ d, showChart }: { d: Drill; showChart: boolean }) {
 
 function MetaChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full border bg-background px-2.5 py-0.5 font-mono text-[11.5px] text-muted-foreground">
+    <span className="rounded-full border bg-background px-2.5 py-0.5 font-mono text-meta text-muted-foreground">
       {children}
     </span>
   )
@@ -159,25 +159,25 @@ function Hud({ stats, run, session }: { stats: DrillStats; run: number; session:
   const total = (stats.byKind?.compute?.total ?? 0) + (stats.byKind?.verdict?.total ?? 0)
   const right = (stats.byKind?.compute?.right ?? 0) + (stats.byKind?.verdict?.right ?? 0)
   return (
-    <div className="my-1 mb-4.5 grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-2.5">
+    <CardGrid min="sm" gap="gap-2.5" className="my-1 mb-4.5">
       <HudCard k="today">
         <div className={cn('hud-v', todayN >= DAILY_GOAL && 'text-good')}>
-          {todayN}<span className="text-[10.5px] text-muted-foreground/70">/{DAILY_GOAL}</span>
+          {todayN}<span className="text-label text-muted-foreground/70">/{DAILY_GOAL}</span>
         </div>
         <Progress className="mt-1.5" value={Math.min(100, todayN / DAILY_GOAL * 100)} barClassName="bg-good bg-none" />
       </HudCard>
       <HudCard k="streak">
         <div className={cn('hud-v', run >= 5 && 'text-warn')}>{run >= 3 ? '🔥 ' : ''}{run}</div>
-        <div className="text-[10.5px] text-muted-foreground/70">best {stats.bestRun ?? 0}</div>
+        <div className="text-label text-muted-foreground/70">best {stats.bestRun ?? 0}</div>
       </HudCard>
       <HudCard k="session">
-        <div className="hud-v">{session.right}<span className="text-[10.5px] text-muted-foreground/70">/{session.total}</span></div>
+        <div className="hud-v">{session.right}<span className="text-label text-muted-foreground/70">/{session.total}</span></div>
       </HudCard>
       <HudCard k="all-time">
         <div className="hud-v">{total ? Math.round(right / total * 100) + '%' : '—'}</div>
-        <div className="text-[10.5px] text-muted-foreground/70">{total} answered</div>
+        <div className="text-label text-muted-foreground/70">{total} answered</div>
       </HudCard>
-    </div>
+    </CardGrid>
   )
 }
 
@@ -223,7 +223,7 @@ function Feedback({ right, children }: { right: boolean; children: React.ReactNo
   return (
     <div
       className={cn(
-        'my-3 rounded-lg border px-4.5 py-3.5 [&_p]:mb-2 [&_p]:text-[14.5px]',
+        'my-3 rounded-lg border px-4.5 py-3.5 [&_p]:mb-2 [&_p]:text-note',
         right
           ? 'animate-pop-good border-good/40 bg-good/10'
           : 'animate-shake-bad border-destructive/40 bg-destructive/10'
@@ -330,7 +330,7 @@ export default function M10() {
             )}
           >
             <span className="block text-sm font-semibold text-foreground">{label}</span>
-            <span className="mt-0.5 block font-mono text-[11.5px] tabular-nums text-muted-foreground">{scoreLine(key)}</span>
+            <span className="mt-0.5 block font-mono text-meta tabular-nums text-muted-foreground">{scoreLine(key)}</span>
           </button>
         ))}
       </div>
@@ -341,7 +341,7 @@ export default function M10() {
         <Button variant={showChart ? 'default' : 'secondary'} onClick={() => setShowChart(s => !s)}>
           {showChart ? 'payoff: on' : 'payoff: off'}
         </Button>
-        <span className="font-mono text-[11.5px] text-muted-foreground/70">
+        <span className="font-mono text-meta text-muted-foreground/70">
           {tab === 'verdict' ? 'keys 1–6 answer · enter next' : 'enter checks · enter again for next'}
         </span>
       </div>
@@ -373,7 +373,7 @@ export default function M10() {
             {graded !== null && (
               <>
                 <Feedback right={graded}>{graded ? `Correct${run >= 3 ? ` — ${run} in a row` : ''}` : 'Not quite'}</Feedback>
-                <div className="-mt-2 mb-3 rounded-b-lg px-1 text-[14.5px]">
+                <div className="-mt-2 mb-3 rounded-b-lg px-1 text-note">
                   <p className="mb-2">
                     Rule <b>{d.rule}</b>: requirement <b>${fmt(d.requirement)}</b>, proceeds ${fmt(d.proceeds)},
                     cash call ${fmt(d.cashCall)}.
@@ -398,7 +398,7 @@ export default function M10() {
           </>
         ) : (
           <>
-            <div className="my-3.5 grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2">
+            <CardGrid min="md" gap="gap-2" className="my-3.5">
               {VERDICTS.map(([key, label], i) => {
                 const state =
                   picked === null ? '' :
@@ -421,13 +421,13 @@ export default function M10() {
                   </button>
                 )
               })}
-            </div>
+            </CardGrid>
             {picked !== null && correctVerdict && (
               <>
                 <Feedback right={picked === d.outcome}>
                   {picked === d.outcome ? `Correct${run >= 3 ? ` — ${run} in a row` : ''}` : 'Wrong bucket'}
                 </Feedback>
-                <div className="-mt-2 mb-3 px-1 text-[14.5px]">
+                <div className="-mt-2 mb-3 px-1 text-note">
                   <p className="mb-2">
                     This is <b>{correctVerdict[1]}</b>: {correctVerdict[2]}.
                     {d.rule ? <> Rule: <b>{d.rule}</b>.</> : null}

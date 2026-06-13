@@ -1,0 +1,147 @@
+Beyond two legs live the butterflies, condors, boxes, and everything a customer can
+dream up. The rulebook can't enumerate them all, so it ends with a catch-all:
+`generic_limited_risk_combo` — margin = maximum potential loss, for any
+all-options structure that is *provably bounded*. The two halves of that sentence
+are this module.
+
+### mpl(legs) — how “worst case” is actually computed
+
+<Formula>{`evaluate intrinsic payoff at: U = 0, every strike, U → ∞
+mpl = the worst (most negative) of those points`}</Formula>
+
+Why is checking only the strikes enough? Between strikes, an options payoff is a
+straight line — kinks happen only *at* strikes. A piecewise-linear function takes
+its minimum at a kink or at the ends. So: all strikes, plus both tails. Cheap,
+exact — **provided the tails behave**.
+
+### The killer counterexample — why is_limited_risk exists
+
+<RuleRef rule="generic_limited_risk_combo (the is_limited_risk guard)" />
+<RatioLab />
+
+Click between those two buttons until it's burned in. The ratio spread (long 1 call,
+short 2 higher calls) evaluated at its own strikes looks bounded — and is unbounded one
+dollar past the chart edge. **“Evaluate at the strikes” is only sound when the
+tails are flat or rising.** So the guard checks the tails first:
+
+<Formula>{`U → ∞ : net call exposure (long calls − short calls, in shares) must be ≥ 0
+U → 0 : net put exposure must be ≥ 0
+time  : no short may outlive the longs of its own type (the reverse-calendar trap)`}</Formula>
+
+Fail any of these and the position falls out of the catch-all entirely — NoRule, not a
+number. An unbounded structure reaching `mpl()` would get a confidently wrong
+bounded answer; refusing to answer is the safe failure mode. This guard is, by a wide
+margin, the most load-bearing three lines in the rulebook.
+
+### The butterfly, fully worked (manual p.52)
+
+<RuleRef rule="generic_limited_risk_combo" test="TestLongButterflyPuts_p52" page="p.52" />
+<PayoffChart
+  legs={[
+    { kind: 'put', side: 1, K: 540, P: 5.6 },
+    { kind: 'put', side: -1, K: 550, P: 7.2, qty: 2 },
+    { kind: 'put', side: 1, K: 555, P: 9.8 },
+  ]}
+  lo={520} hi={575}
+  title="Long 540P / short 2× 550P / long 555P — bounded everywhere" />
+
+Tail check: puts net out (1 + 1 long vs 2 short → 0 net at U→0 ✓), no calls ✓. MPL scan
+over \{0, 540, 550, 555, ∞\} finds the worst point at U=540: shorts owe $2,000,
+the 555 put recovers $1,500, net −$500. Then the familiar assembly:
+
+<Formula>{`gross    = mpl + Σ long premiums  = 500 + (560 + 980)  = $2,040
+proceeds = Σ short premiums       = 2 × 720           = $1,440
+cash     =                                              $  600`}</Formula>
+
+Same shape for iron butterflies and condors (`TestShortIronButterfly_p56`:
+gross $810 / proceeds $720 / cash $90). One formula, every bounded combo — that's the
+payoff for proving boundedness up front.
+
+### Boxes — when a position is a loan wearing a costume
+
+<RuleRef rule="long_box_spread / short_box_spread" />
+
+A **long box** = bull call spread + bear put spread at the same two strikes.
+At expiry it pays exactly (K_high − K_low) × 100, no matter where U lands — you've
+synthetically lent money. European boxes (no early exercise risk) get loan-value
+treatment: requirement = 50% of the strike gap. American boxes can be assigned early,
+so they fall back to the MPL machinery. One YAML conditional on
+`style == 'european'` — and a reminder that *exercise style is a risk
+parameter*, not trivia.
+
+### Rule order is load-bearing
+
+<Callout kind="warn">
+  <p>
+    The engine returns the <strong>first</strong> rule whose match binds and whose
+    constraints hold. The catch-all matches <em>any</em> 3–8 leg all-options position, so
+    every specific rule must sit <strong>above</strong> it in the YAML. Move the box rule
+    below the catch-all and boxes silently price as generic combos — possibly correctly
+    today, until the box-specific European branch matters and nobody notices it stopped
+    firing. In limen, file order in <code>cboe_baseline.yaml</code> is semantics, which is
+    why tests assert <code>res.RuleID</code> and not just the number.
+  </p>
+</Callout>
+
+### What a ratio spread does next — the optimizer's frontier
+
+The guard refuses the ratio spread *as one structure*. The position still needs a
+price, and pricing it is the decomposition optimizer's job — the amber box on the map
+with the most interesting open work:
+
+- **The search.** Long 1× 100C + short 2× 110C decomposes into a vertical
+  (bounded, MPL-priced) plus one naked 110C (priced by the stress formula). The optimizer's
+  branch-and-bound explores partitions like this and keeps the cheapest *compliant*
+  one — the customer is entitled to the best legal interpretation, and “legal” is enforced
+  because every candidate group is priced by the same rule engine with the same guards.
+- **The node budget (ROADMAP #20).** Partition count explodes
+  combinatorially, so the search carries a budget. Today's open defect class: a
+  *bigger* budget can produce a *worse* answer — the traversal order means
+  extra nodes can displace better ones. Budget-monotonicity (more search never hurts) is
+  the property the rework must restore, and it's a property test, not a fixture.
+- **The decompose corpus.** Your pricing corpus verified the formula layer;
+  the optimizer's search layer is still uncovered. The designed oracle: on portfolios of
+  ≤8 legs, *enumerate every partition exhaustively* and assert B&B finds the
+  same optimum. Small enough to brute-force, real enough to catch search bugs — the same
+  oracle-class discipline as the manual fixtures, applied to a search problem.
+- **Cross-position pooling (ROADMAP #09).** Today each submitted position
+  is its own search bucket (your locked wire-l05 D2: caller's grouping is authoritative).
+  The universal-spread-rule epic would let legs pool across positions — a different
+  *number*, not just a different speed, which is why it's a separate epic and not a
+  flag.
+
+<Callout kind="tip">
+  <p>
+    Note what kind of work this is: no new margin math anywhere — the formulas are all
+    the mechanics modules. The optimizer's discipline is <strong>search soundness</strong>: never
+    miss a cheaper legal partition, never accept an illegal one, degrade predictably under
+    budget. When you review optimizer PRs, you're reviewing a search algorithm, and the
+    questions are coverage and monotonicity, not Cboe citations.
+  </p>
+</Callout>
+
+### Self-check
+
+<Reveal q="Tail-walk: long 2× 100C, short 3× 110C. Limited risk?">
+  <p>U→∞: net call exposure = 2 − 3 = −1 contract → one naked call survives the hedge →
+    unbounded → <strong>not limited risk</strong>, guard rejects, NoRule. (At the strikes
+    alone it would have looked fine — that's the trap.)</p>
+</Reveal>
+<Reveal q="Iron condor: short 95P/long 90P + short 105C/long 110C. Tails? MPL?">
+  <p>Tails: puts net 0, calls net 0 → bounded ✓. Worst case: one side fully ITM through
+    its long — a $5 gap × 100 = <strong>$500 MPL</strong> (both sides can't lose at one
+    final price, and the scan over strike points finds that automatically).</p>
+</Reveal>
+<Reveal q="Why does the engine refuse to price a ratio spread rather than charging, say, naked margin on the extra short?">
+  <p>It doesn't refuse the <em>position</em> — it refuses it as a <em>single generic
+    combo</em>. Decomposition splits it into a vertical + a naked call, each priced by its
+    own rule. What's forbidden is one rule pretending the whole thing has a bounded MPL.
+    Right answer through decomposition, never a wrong answer through a false bound.</p>
+</Reveal>
+<Reveal q="Why is the exhaustive-partition oracle only feasible for the decompose corpus at ≤8 legs?">
+  <p>The number of ways to partition n legs grows like the Bell numbers — explosively. At
+    8 legs it's a few thousand partitions: brute-forceable, so the oracle is <em>complete</em>{' '}
+    ground truth at that size. The bet (same as all corpus work): search bugs that exist at
+    large n almost always have a small-n witness, so complete coverage at small n plus
+    property tests (budget monotonicity) at large n is the practical proof.</p>
+</Reveal>

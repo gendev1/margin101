@@ -1,0 +1,80 @@
+Vendor margin systems compute house calls **once a day, after the close** — and even a perfectly reliable EOD-only system has a structural blind spot: a customer can be fine at 9:30, deeply under water at 11:00, and the firm finds out at 6pm. **Intraday streaming re-evaluation** closes that gap: recompute margin continuously as prices move, and warn *before* the call exists. Gray on the map, host-buildable on today's SDK — here's the actual shape of the system.
+
+<Callout>
+  <p>
+    <strong>This stopped being optional in June 2026.</strong> FINRA Notice 26-10
+    eliminated the PDT rule and made day-trading buying power a function of{' '}
+    <em>real-time intraday margin excess</em> — meaning brokers who offer day trading now
+    need exactly the machinery this module describes, as a regulatory matter, not a
+    product ambition. The gray box got a compliance deadline (phase-in through October
+    2027).
+  </p>
+</Callout>
+
+### The naive version, and why it almost works
+
+<Formula>{`every N seconds:
+  for each account:
+    re-evaluate everything (engine + optimizer + aggregation + overlay)
+    if equity < threshold × requirement → alert
+
+cost check: 0.12 ms/position × 100,000 positions ≈ 12 s of ONE core
+            → a 16-core box re-margins the whole firm every ~1s`}</Formula>
+
+Because limen is a pure function with no I/O, the brute-force loop is already almost viable — that's unusual, and it's a direct dividend of the purity decisions ([your system decisions](#m9)). Most margin systems can't do this because their calculation is entangled with their database. The refinements are about not wasting the 99% of work that recomputes unchanged answers:
+
+- **Dirty-marking by underlying.** A tick in XYZ only moves accounts holding XYZ. Index accounts by underlying; a tick re-evaluates the affected slice, not the firm. The fan-out is exactly the `U` input changing and nothing else.
+- **Debounce by materiality.** A $0.01 tick doesn't need a re-margin; a 2% move does. Threshold the trigger, not just the alert.
+- **Stateless workers scale sideways.** Every evaluation is independent — shard accounts across workers with zero coordination. (Compare a vendor's nightly batch: a singleton job that fails as a unit. The architectural opposite.)
+
+### The product: early warning, not just faster calls
+
+<Formula>{`equity / requirement:   1.50      1.25      1.10       1.00      <1.00
+                         │         │         │          │          │
+                       healthy   watch    WARN the   margin     forced
+                                 list     customer   call       liquidation
+                                          "you're 10% from
+                                           a call at U=$87"`}</Formula>
+
+The valuable output isn't “the call fired three hours earlier.” It's the **warning band**: telling a customer at 1.10× that a further 4% drop in their concentrated position triggers a call — while they can still act voluntarily. Better for the customer (they choose what to trim), better for the firm (voluntary de-risking beats forced liquidation into a falling market). The math for “at what U does this account hit 1.00×?” is a root-find over the same evaluation — one more place the pure engine gets reused as a subroutine.
+
+### What's genuinely hard (it's not the compute)
+
+- **Intraday inputs are worse.** EOD has settled closing prices; intraday has last-trade prints that can be stale, crossed, or halted. A re-margin off a bad print can fire a false alarm at scale. Input quality gates (staleness, sanity bands) matter more than evaluation speed.
+- **Alert hygiene is a product problem.** An account oscillating around 1.10× must not page anyone forty times. Hysteresis (alert at 1.10 falling, clear at 1.15 rising) is the difference between a tool and a nuisance.
+- **It must agree with EOD.** Same rulebook hash, same overrides, same refdata as the official run — an intraday number that disagrees with the EOD number for the same prices destroys trust in both. (Same consistency argument as pre-trade, [pre-trade](#m18) — these two systems share their hardest requirement.)
+
+<Callout kind="tip">
+  <p>
+    Classification (the module-10 playbook): this is <strong>workflow + data engineering
+    around a pure core</strong> — no new margin math, no new oracle for the calculation
+    itself. The new testing surface is the <em>eventing</em>: did the right accounts
+    re-evaluate on a tick, did hysteresis suppress the flapping alert, did a halted symbol
+    freeze its accounts instead of alarming them. State-machine tests, not manual pages.
+  </p>
+</Callout>
+
+### Self-check
+
+<Reveal q="Why does limen's purity make the brute-force loop feasible at all?">
+  <p>No I/O or hidden state means evaluation cost is pure CPU (~0.12 ms) and
+    embarrassingly parallel — 100k positions is seconds on one box. A calculation that
+    reads its own database per evaluation would be 100× slower and contend with itself;
+    the architecture, not the formula speed, is what makes streaming viable.</p>
+</Reveal>
+
+<Reveal q="A symbol halts at $40 after trading at $80. What should the intraday system do, and what must it NOT do?">
+  <p>Freeze the symbol's accounts with a “stale/halted input” status and route to humans.
+    It must NOT re-margin everyone at $40 and fire mass liquidation warnings off a print
+    that may reopen at $75 — input-quality gating before evaluation. A wrong number
+    delivered fast is still a wrong number; the fail-loud philosophy applies to market
+    data exactly as it applies to a missing rates class.</p>
+</Reveal>
+
+<Reveal q="Why must intraday and EOD share the same rulebook hash?">
+  <p>If they can disagree for identical inputs, every discrepancy becomes “which system is
+    wrong?” — and the answer is undiagnosable because they're running different rules. Pin
+    both to the same content hash and any intraday-vs-EOD difference is, by construction,
+    an input difference (prices, overrides), which is exactly the difference the system
+    exists to surface.</p>
+</Reveal>

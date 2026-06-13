@@ -1,0 +1,106 @@
+The engine prices a *named structure*: hand it legs that form a covered call, get a number. But customers don't submit named structures — they submit a bag of legs. Who decides that these 100 shares pair with *that* short call instead of standing alone? The **decomposition optimizer**. It exists because the pairing decision is worth real money, and the customer is entitled to the best legal one. Taught from zero, with every number computable from [single-leg pricing](#m2).
+
+### The problem, concretely
+
+One account, four legs, U = $100, plain equity:
+
+<Formula>{`leg 1:  long 100 shares
+leg 2:  short 1 call  K=105, P=$2.00
+leg 3:  short 1 put   K=95,  P=$1.50`}</Formula>
+
+Price each piece standalone first (single-leg math — verify these yourself): stock alone = 0.50 × 100 × 100 = **$5,000**; naked 105-call = (2 + max(20−5, 10)) × 100 = **$1,700**; naked 95-put = (1.5 + max(20−5, 9.5)) × 100 = **$1,650**. Now — same legs, three legal groupings, three different totals:
+
+<table>
+  <thead><tr><th>Partition</th><th>Groups</th><th>Arithmetic</th><th>Total</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>A</strong></td>
+      <td>covered_call(shares + call) · naked put</td>
+      <td>5,000 (call rides free) + 1,650</td>
+      <td><strong>$6,650</strong> ✓</td>
+    </tr>
+    <tr>
+      <td><strong>B</strong></td>
+      <td>strangle(put + call) · long stock</td>
+      <td>max(1,650, 1,700) + 150 + 5,000</td>
+      <td>$6,850</td>
+    </tr>
+    <tr>
+      <td><strong>C</strong></td>
+      <td>everything standalone</td>
+      <td>5,000 + 1,700 + 1,650</td>
+      <td>$8,350</td>
+    </tr>
+  </tbody>
+</table>
+
+Partition A wins: pairing the shares with the call makes the call's requirement vanish (assignment just takes shares you own — [stock hedges](#m4)). The customer with partition C's broker posts **$1,700 more for the identical risk**. That gap is the optimizer's entire reason to exist — and why it's not optional polish: first-match alone would price whatever grouping the input happened to arrive in.
+
+### Why this is a search problem (and why that's hard)
+
+The number of ways to partition n legs grows like the Bell numbers: 4 legs → 15 ways, 8 legs → 4,140, 12 legs → 4,213,597. Trying them all stops being feasible fast. The classic answer is **branch and bound (B&amp;B)** — from zero:
+
+<Formula>{`grow a tree: at each node, take the next leg and try every way to
+place it — into an existing group or starting a new one.
+
+                        {}
+            ┌────────────┴────────────┐
+        {sh}                       …
+     ┌────┴─────────┐
+ {sh,call}       {sh} {call}            ← "branch": every placement
+     │                │
+ priced: $5,000   priced: $5,000+1,700  ← partial cost so far
+     │                ✗ PRUNED: already ≥ best-known $6,650
+     ▼
+ keep exploring only branches that could still win
+
+"bound" = if a partial grouping already costs more than the best
+complete answer found so far, every completion of it loses too —
+cut the whole subtree without pricing it.`}</Formula>
+
+- **Branch** = enumerate placements. **Bound** = requirements only grow as you add groups, so a partial total is a floor for every completion — subtrees that can't beat the incumbent die unexplored.
+- **Legality is delegated.** Every candidate group is priced by the same rule engine with the same guards — the optimizer can't invent a grouping the rulebook wouldn't accept (a “covered call” with mismatched underlying simply fails to bind). New discipline: search. Zero new margin math.
+- **Residual sinks.** Legs no template absorbs fall to standalone rules (naked call, plain stock) — by explicit rule ID, *after* the search, never as shortcuts inside it. Your locked D6/D7 ([your decisions: the number](#m8)): if the cheap standalone rules were searchable targets, B&amp;B could “win” by leaving a call naked that shares could have covered.
+- **The node budget.** Worst-case trees are still huge, so the search caps explored nodes. Under budget pressure it returns the best *found* — legal and safe, possibly not cheapest. Customer-fair degradation, not unsoundness.
+
+<Panel title="The open work (amber on the map) — now you can read it">
+  <ul>
+    <li><strong>Budget monotonicity (ROADMAP #20):</strong> today a <em>bigger</em> budget can
+      return a <em>worse</em> answer — traversal order lets extra nodes displace better ones.
+      “More search never hurts” is the property the rework restores; it's a property test,
+      not a fixture.</li>
+    <li><strong>The decompose corpus:</strong> your pricing corpus proved the formulas; the
+      search layer has no oracle yet. Design: portfolios ≤8 legs, enumerate <em>all</em>{' '}
+      partitions (4,140 is brute-forceable), assert B&amp;B finds the optimum — complete
+      ground truth at small n, betting search bugs have small witnesses.</li>
+    <li><strong>Cross-position pooling (#09):</strong> today each submitted position is its own
+      search bucket — the caller's grouping is authoritative (locked, wire-l05 D2). Pooling
+      across positions finds cheaper offsets but produces a <em>different number</em>, which
+      is why it's a future epic, not a flag.</li>
+  </ul>
+</Panel>
+
+<RuleRef rule="internal/optimizer + internal/optdecomp" test="decompose.go (OptimizerTargets loop → scoreAllResidual)" />
+
+### Self-check
+
+<Reveal q="Add a 4th leg to the worked account: long 1 put K=90 @ $1. Which partition should win now, roughly?">
+  <p>The long 90-put can cap the short 95-put into a vertical: min(naked 1,650, MPL 500) +
+    100 paid = $600 — versus $1,650 naked + $100 standalone long. New best: covered
+    call (5,000) + put vertical (600) = <strong>$5,600</strong>, beating A's 6,650 + 100.
+    One added hedge leg, $1,150 cheaper — and the optimizer must <em>find</em> that pairing
+    among 15+ partitions.</p>
+</Reveal>
+<Reveal q="Why does the bound argument require that adding a group never lowers the total?">
+  <p>Pruning says: partial cost ≥ best-known ⟹ abandon. That's only valid if completing a
+    partition can't <em>reduce</em> cost — true because every group's requirement is ≥ 0.
+    If a group could price negative, a losing partial could still win and pruning would be
+    unsound. (This is also why requirement-reducing modes don't exist anywhere: they'd
+    break the optimizer's math, not just the audit story.)</p>
+</Reveal>
+<Reveal q="The optimizer returns a partition priced $7,200; exhaustive enumeration says $6,650 existed. Bug class?">
+  <p>A search bug, not a pricing bug — every group was priced correctly; the search failed
+    to reach the better partition (bad pruning bound, budget exhaustion order, or a missing
+    branch). This is exactly the class the decompose corpus exists to catch, and why its
+    oracle must be exhaustive rather than spot-check.</p>
+</Reveal>

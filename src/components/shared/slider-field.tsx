@@ -13,7 +13,7 @@ interface SliderFieldProps {
 export function SliderField({ label, value, onChange, min, max, step = 1, money = false }: SliderFieldProps) {
   return (
     <div className="my-2 flex items-center gap-3">
-      <label className="min-w-[150px] font-mono text-[12.5px] text-muted-foreground">{label}</label>
+      <label className="min-w-[150px] font-mono text-cap text-muted-foreground">{label}</label>
       <Slider
         value={[value]}
         onValueChange={([v]) => onChange(v)}

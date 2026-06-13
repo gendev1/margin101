@@ -19,7 +19,7 @@ function NavCard({ module, dir }: { module: ModuleDef; dir: 'prev' | 'next' }) {
         {next ? 'Next' : 'Previous'}
         {next && <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />}
       </span>
-      <strong className="text-[14.5px]">{module.title}</strong>
+      <strong className="text-note">{module.title}</strong>
     </a>
   )
 }

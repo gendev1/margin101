@@ -1,6 +1,6 @@
 import { ArrowRight } from 'lucide-react'
 
-import { Callout, Panel, Reveal } from '@/components/shared'
+import { CardGrid, Callout, Panel, Reveal } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { DAILY_GOAL, lastVisit, loadDrills, weakestFamilies } from '@/lib/store'
 import { MODULES } from '@/modules'
@@ -24,7 +24,7 @@ export default function Home() {
         </div>
       )}
 
-      <div className="my-3.5 mb-2 grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-3">
+      <CardGrid min="xl" className="my-3.5 mb-2">
         <Panel className="m-0" title="Drills">
           <p className="text-sm">
             The fastest way to make any module stick: a handful of corpus drills against the
@@ -50,7 +50,7 @@ export default function Home() {
             drills make both automatic, and the map tells you what to build next.
           </p>
         </Panel>
-      </div>
+      </CardGrid>
 
       <h3>Route me fast</h3>
       <table>
@@ -73,7 +73,7 @@ export default function Home() {
       </table>
 
       <h3>Three study loops that fit real days</h3>
-      <div className="my-3.5 grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
+      <CardGrid min="2xl" className="my-3.5">
         <Panel className="m-0" title="15 min — before a decision">
           <ul>
             <li>Name the live fork in one sentence.</li>
@@ -94,7 +94,7 @@ export default function Home() {
             <li>Drill that family until it's ≥85% green.</li>
           </ul>
         </Panel>
-      </div>
+      </CardGrid>
 
       <Callout kind="tip">
         <p>

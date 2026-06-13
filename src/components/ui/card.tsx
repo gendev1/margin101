@@ -19,7 +19,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       className={cn(
-        'text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground',
+        'text-[11px] eyebrow text-muted-foreground',
         className
       )}
       {...props}

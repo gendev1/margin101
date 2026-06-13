@@ -25,7 +25,7 @@ export function Callout({ kind = 'note', label, children }: CalloutProps) {
         s.box
       )}
     >
-      <span className={cn('mb-1 block text-[10.5px] font-bold uppercase tracking-[0.12em]', s.label)}>
+      <span className={cn('mb-1 block text-label eyebrow', s.label)}>
         {label ?? s.fallback}
       </span>
       {children}

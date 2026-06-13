@@ -1,0 +1,108 @@
+[House overlay & overrides](#m15) taught the *pipes*: modes,
+composition, the bitemporal store. This module is the *water* — the actual
+add-ons real risk desks run through those pipes, what each one protects against, and
+where the numbers come from. This is the domain content a risk manager would quiz you
+on, and none of it is in the Cboe manual: baselines are the regulator's floor;
+add-ons are the firm's actual risk appetite, expressed in dollars.
+
+### The catalog — eight add-ons that exist at every serious desk
+
+| Add-on | Trigger | What it protects against | limen shape |
+|---|---|---|---|
+| **Concentration** | one name \> X% of account equity | diversification assumptions failing — the whole account is one bet | `add`, account scope |
+| **Liquidity** | position large vs daily volume | the liquidation itself moving the price against you | `add`, symbol scope |
+| **Low-price / penny floor** | price \< $5 | cheap stocks halving or doubling overnight | `floor` % of MV |
+| **Hard-to-borrow short surcharge** | borrow rate / utilization high | recalls and squeezes — the short may be forced closed at the worst price | `add` or `floor`, symbol |
+| **Event / binary-risk** | earnings, FDA dates, court rulings | gaps that ignore every band — the ±15% assumption dying on schedule | temporary `floor`, symbol |
+| **Leveraged-product multiplier** | lev ≠ 1.0 instruments | 2× products moving 2× (and drifting) — beyond the baseline's lev scaling | `floor`, instrument-kind |
+| **Stress overlay** | house scenario wider than the regulatory band (e.g. ±25%) | the band assumption itself (the PM module's warning, patched with money) | `floor` at house-scenario loss |
+| **Sector / correlation cap** | net exposure to one sector \> X% | “diversified” books that are actually one macro bet in five costumes | `add` or `block`, group scope |
+
+### Two of them worked, so the shapes are real
+
+<Formula>{`CONCENTRATION — account equity $100,000, policy: a single name above
+25% of equity adds 10% of the excess to the requirement.
+
+position: $80,000 of one stock
+  excess over the 25% line: 80,000 − 25,000 = 55,000
+  add-on: 10% × 55,000 = $5,500          (on top of the $20,000 baseline)
+  → component: { mode: add, scope: account, basis: concentration_excess }
+
+LIQUIDITY — policy: positions over 1 day-to-liquidate add 2%/extra day.
+  position: 400,000 shares; ADV 1,000,000; max participation 20%
+  days_to_liquidate = 400,000 / (1,000,000 × 0.20) = 2.0 days
+  add-on: (2.0 − 1.0) × 2% × MV          — priced for the exit, not the holding`}</Formula>
+
+Notice what both have in common: the trigger and the size are computed off
+**facts about the position and account** (equity share, ADV), not off the
+baseline requirement — which is exactly the basis-derived arithmetic that keeps
+composition order-independent ([the overlay module](#m15)'s locked rule).
+The catalog is firm-specific; the discipline is universal.
+
+### Where the numbers come from (calibration is the real work)
+
+- **Historical worst moves** — the penny floor's 100% and the event
+  add-on's size come from someone tabulating what these things actually did: biotech
+  FDA-date gaps, meme-squeeze magnitudes, post-earnings moves by market cap.
+- **Liquidation cost studies** — the liquidity add-on encodes measured
+  market impact: what did it cost us to unwind the last forced liquidation of this size?
+- **Risk appetite, written down** — “no single account may put more than
+  $X of firm capital at risk in a 3-sigma day” cascades down into the concentration and
+  stress numbers. The add-on is the appetite statement, compiled to dollars.
+- **Quarterly review** — appetites drift, markets change regime, and the
+  bitemporal store is what makes “what was the policy last March, and who changed it” a
+  query instead of an argument.
+
+<Callout kind="tip">
+  <p>
+    <strong>Margin policy is a competitive product surface.</strong> Too strict and active
+    traders leave for the broker with better leverage; too loose and one squeeze eats a
+    year of commissions. Every row in the catalog is a dial the business turns under
+    pressure from both sides — which is precisely why add-ons live in an ops-editable,
+    audited, raise-only store instead of in the engine's YAML. The baseline answers to the
+    regulator; the add-ons answer to the P&amp;L. Keep them in separate rooms.
+  </p>
+</Callout>
+
+### The discipline that keeps the catalog honest
+
+- **Attributable** — every applied add-on emits a named component, so a
+  $31,400 requirement decomposes into baseline + concentration + HTB + event, each with
+  an owner. A number that can't be decomposed can't be defended — to the customer or the
+  regulator.
+- **Raise-only** — no add-on may go below baseline (the `set`-mode
+  argument from [your decisions](#m8)). Relief is a different, rarer, more
+  dangerous feature with its own approvals.
+- **Temporary by default** — event add-ons carry `valid_to`
+  (the earnings date passes, the floor expires). An add-on without an expiry is a policy;
+  an add-on with one is a reaction. The store treats both as first-class.
+- **Tested like code** — a policy change replays against yesterday's book
+  before it ships: “this new concentration rule would have moved 1,200 accounts by a
+  median $400” is a one-evaluation what-if ([the same machinery](#m18) as
+  pre-trade, pointed at policy).
+
+### Self-check
+
+<Reveal q="The desk asks: 'charge extra for meme stocks with high short interest.' Classify it: which add-on type, mode, scope?">
+  <p>Hard-to-borrow / squeeze-risk surcharge: trigger = borrow utilization or short
+    interest above a threshold; shape = <code>floor</code> or <code>add</code> at symbol
+    scope, sized off short-side market value; probably temporary (squeeze conditions pass).
+    The follow-up question that earns respect: “what data feed tells us short interest,
+    how stale is it, and what happens when it's missing?” — every add-on imports a data
+    dependency, and missing-data behavior must be loud, as always.</p>
+</Reveal>
+<Reveal q="Why is the stress overlay an overlay floor rather than a change to the TIMS band?">
+  <p>The TIMS band is the published, comparable methodology — widen it inside the engine
+    and your baseline stops reconciling against the vendor and the OCC. The house's wider
+    scenario is policy expressed as a floor over the citable number: baseline stays
+    comparable, fear stays attributable, and the recon stream can tell them apart. Same
+    boundary as penny floors over Reg-T, at a bigger scale.</p>
+</Reveal>
+<Reveal q="Concentration uses account scope while HTB uses symbol scope. Why does the scope follow the risk?">
+  <p>Concentration is a property of the <em>account's composition</em> — the same $80k
+    position is fine inside a $1M account and dangerous inside a $100k one, so the trigger
+    needs account-level facts. HTB risk is a property of the <em>symbol</em> — the borrow
+    market doesn't care whose account holds the short. Scope isn't a technical choice;
+    it's where the risk actually lives, and getting it wrong either misses the risk or
+    charges the wrong people.</p>
+</Reveal>

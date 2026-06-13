@@ -21,9 +21,9 @@ interface StatProps {
 export function Stat({ k, v, note, tone }: StatProps) {
   return (
     <div className="min-w-[145px] rounded-lg border bg-secondary/60 px-4 py-2.5">
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{k}</div>
+      <div className="text-label font-semibold uppercase tracking-[0.08em] text-muted-foreground">{k}</div>
       <div className={cn('mt-0.5 font-mono text-xl tabular-nums', tone && TONES[tone])}>{v}</div>
-      {note && <div className="mt-0.5 text-[11.5px] text-muted-foreground">{note}</div>}
+      {note && <div className="mt-0.5 text-meta text-muted-foreground">{note}</div>}
     </div>
   )
 }

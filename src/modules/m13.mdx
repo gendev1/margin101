@@ -1,0 +1,106 @@
+The biggest way to get fooled in a system like margincalc is to think every future piece is “just another engineering task.” It is not. The quality of the decision usually comes from recognizing *what kind of system* the next thing really is.
+
+### Step 1 — classify the subsystem before you design it
+
+| Type | First question to ask | Signals | Where it belongs |
+|---|---|---|---|
+| **Baseline engine** | Is the problem a citable margin rule or refusal path? | manual page, rates class, hedge soundness, verdict semantics | rules + pure engine |
+| **Optimizer / search** | Is the challenge finding the cheapest legal grouping rather than pricing a known grouping? | partitioning, pooling, residual legs, branch-and-bound, search budget | optimizer |
+| **House policy** | Is the request firm-specific and allowed to be stricter than baseline? | symbol floor, blocklist, account policy, risk profile, raise-only logic | overlay / overrides |
+| **Numerical model** | Does the system need theoretical prices or scenario-grid evaluation rather than manual transcription? | TIMS, portfolio margin, vol surfaces, tolerances, model calibration | new methodology layer |
+| **Data plane** | Does the correctness depend on better reference data or external feeds? | class, lev, corporate actions, contract adjustments, market-data quality | host-fed snapshots and validation |
+| **Stateful ledger** | Does yesterday materially change today’s answer? | carry forward, debit/credit accumulation, due dates, rolling balances | SMA / bookkeeping |
+| **Workflow / ops** | Is the real work about actions, queues, deadlines, and humans? | margin calls, notifications, approvals, triage dashboards, desk tooling | host operations |
+
+### Step 2 — ask the seven hard questions
+
+1. **What is the silent-wrong-number risk?** If the answer is “it could plausibly under-margin without obvious signal,” the bar goes up immediately.
+2. **What is the oracle?** Manual example, exhaustive search on small cases, model tolerance, vendor compare, or accounting invariants?
+3. **What is the primary dependency?** Better rules, better search, better data, better state handling, or better workflow?
+4. **Is the output pure or stateful?** Same input same output, or does history matter?
+5. **Who should own it?** limen core, optimizer, overlay store, host, or an external vendor?
+6. **What would make supersession likely later?** New evidence, new product scope, new host reality, or new methodology?
+7. **What does “good enough” verification look like?** Exact match, bounded diff, replay seal, or operational reconciliation?
+
+### Applying the playbook to the missing systems
+
+<CardGrid min="2xl" className="my-3.5">
+  <Panel className="m-0" title="TIMS / portfolio margin">
+    <p><strong>Type:</strong> numerical model.</p>
+    <p><strong>Primary new risk:</strong> wrong methodology or weak oracle, not weak YAML coverage.</p>
+    <p><strong>Verification:</strong> scenario sanity tests, model checks, tolerance-banded vendor compare.</p>
+  </Panel>
+  <Panel className="m-0" title="Decomposition optimizer">
+    <p><strong>Type:</strong> search / optimization.</p>
+    <p><strong>Primary new risk:</strong> missing the cheapest legal partition.</p>
+    <p><strong>Verification:</strong> exhaustive oracle on small portfolios, replayable partition traces.</p>
+  </Panel>
+  <Panel className="m-0" title="SMA / buying power">
+    <p><strong>Type:</strong> stateful ledger.</p>
+    <p><strong>Primary new risk:</strong> accounting drift over time.</p>
+    <p><strong>Verification:</strong> event-sequence invariants, ledger snapshots, rule-specific regression cases.</p>
+  </Panel>
+  <Panel className="m-0" title="Margin-call lifecycle">
+    <p><strong>Type:</strong> workflow / ops.</p>
+    <p><strong>Primary new risk:</strong> missed actions, wrong deadlines, broken desk state.</p>
+    <p><strong>Verification:</strong> state-machine tests, due-date logic, operational auditability.</p>
+  </Panel>
+</CardGrid>
+
+### How this keeps intuition from staying private
+
+Intuition is strongest at pattern recognition. The failure mode is not “bad intuition.” It is skipping the explicit classification step and therefore picking the wrong evaluation standard. For example:
+
+- Treating TIMS like a rulebook extension makes you under-invest in model and tolerance design.
+- Treating SMA like account aggregation makes you miss the stateful ledger problem.
+- Treating overlays like baseline rules makes you erase the policy boundary that protects auditability.
+
+<Callout kind="warn">
+  <p>
+    The biggest trap is architecture by analogy. “This feels sort of like the thing we
+    already have” is how a numerical model becomes fake rules, or a ledger becomes a
+    convenient derived field. Classification comes first so analogy does not silently choose
+    the implementation style for you.
+  </p>
+</Callout>
+
+### Recommended sequencing logic
+
+Once a subsystem is classified, sequencing gets much easier:
+
+- **Finish amber before gray** when the amber work de-risks a system you already own.
+- **Prefer host-facing product value** when it reuses trusted math without adding a new discipline.
+- **Isolate discipline shifts** like TIMS and SMA into explicit epics, because the oracle and reasoning style both change.
+- **Delay optional regimes** like SPAN unless the product truly requires them.
+
+<BuildLens title="Use this as the pre-ADR page">
+  <ul>
+    <li>Name the subsystem type in the first paragraph.</li>
+    <li>Name the oracle before the implementation sketch.</li>
+    <li>Name the ownership boundary before talking about APIs.</li>
+    <li>Name the likely supersession trigger so future-you can reverse the call honestly.</li>
+  </ul>
+</BuildLens>
+
+### Self-check
+
+<Reveal q="What is the first classification difference between account aggregation and SMA?">
+  <p>
+    Aggregation is still pure same-day roll-up. SMA is a stateful ledger with memory and
+    carry-forward behavior. If yesterday matters, you are already outside simple aggregation.
+  </p>
+</Reveal>
+<Reveal q="What is the primary reason TIMS deserves its own epic rather than being filed under more rule coverage?">
+  <p>
+    Because the problem changes type: it becomes numerical scenario pricing with model
+    inputs and tolerance-based validation, not rule transcription against a citable manual
+    example.
+  </p>
+</Reveal>
+<Reveal q="Why is classifying a subsystem before designing it worth doing if intuition is already strong?">
+  <p>
+    Because the classification determines the right oracle, dependency model, ownership
+    boundary, and failure mode. Strong intuition gets sharper when those categories are made
+    explicit instead of remaining implicit.
+  </p>
+</Reveal>

@@ -63,6 +63,15 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --font-display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
 
+  /* Semantic type scale — names the recurring sizes so lessons and chrome
+     share one definition instead of sprinkling half-pixel literals. */
+  --text-label: 10.5px;   /* micro eyebrow labels */
+  --text-meta: 11.5px;    /* chips, captions, footnotes */
+  --text-cap: 12.5px;     /* dense mono captions */
+  --text-data: 13.5px;    /* table / ledger data */
+  --text-note: 14.5px;    /* secondary body copy */
+  --text-lead: 15.5px;    /* lesson subtitles / lead-in */
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -233,4 +242,12 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
+}
+
+/* The uppercase-eyebrow treatment used by every section label, card title,
+   stat key, and kicker — one definition, tracking tuned per call site. */
+@utility eyebrow {
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }

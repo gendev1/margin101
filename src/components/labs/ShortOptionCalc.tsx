@@ -47,7 +47,7 @@ export function ShortOptionCalc() {
               className={`h-[22px] max-w-[55%] rounded-[5px] transition-[width] duration-150 ${b.binds ? 'bg-primary' : 'bg-secondary'}`}
               style={{ width: barW(b.v) + '%' }}
             />
-            <span className={`font-mono text-[12.5px] tabular-nums ${b.binds ? 'text-foreground' : 'text-muted-foreground'}`}>
+            <span className={`font-mono text-cap tabular-nums ${b.binds ? 'text-foreground' : 'text-muted-foreground'}`}>
               {b.name} = {fmt(b.v)} {b.binds && '← binds'}
             </span>
           </div>

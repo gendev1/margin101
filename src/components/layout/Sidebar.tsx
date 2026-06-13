@@ -40,7 +40,7 @@ export function Sidebar({ sections, modules, currentId, done }: SidebarProps) {
 
       {sections.map(sec => (
         <div key={sec.id} className="mb-3.5">
-          <div className="mb-1 px-2.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground/70">
+          <div className="mb-1 px-2.5 text-label eyebrow text-muted-foreground/70">
             {sec.label}
           </div>
           <div className="grid gap-px">
@@ -52,12 +52,12 @@ export function Sidebar({ sections, modules, currentId, done }: SidebarProps) {
                   key={m.id}
                   href={`#${m.id}`}
                   className={cn(
-                    'flex items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-[7px] text-[13.5px] text-muted-foreground transition-colors',
+                    'flex items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-[7px] text-data text-muted-foreground transition-colors',
                     'hover:bg-card hover:text-foreground',
                     active && 'border-primary/25 bg-primary/10 text-foreground'
                   )}
                 >
-                  <span className={cn('min-w-5 font-mono text-[10.5px] tabular-nums text-muted-foreground/70', active && 'text-primary')}>
+                  <span className={cn('min-w-5 font-mono text-label tabular-nums text-muted-foreground/70', active && 'text-primary')}>
                     {String(n).padStart(2, '0')}
                   </span>
                   <span className="font-medium leading-tight">{m.title}</span>

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { MDXProvider } from '@mdx-js/react'
 
+import { mdxComponents } from '@/components/mdx-components'
 import { CourseNav } from '@/components/layout/CourseNav'
 import { MarkComplete } from '@/components/layout/MarkComplete'
 import { Masthead } from '@/components/layout/Masthead'
@@ -48,7 +50,9 @@ export default function App() {
         <Masthead module={current} section={section} index={idx} />
 
         <article className="module-body">
-          <Body />
+          <MDXProvider components={mdxComponents}>
+            <Body />
+          </MDXProvider>
         </article>
 
         <CourseNav prev={prev} next={next} />

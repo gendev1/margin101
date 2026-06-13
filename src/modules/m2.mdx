@@ -1,0 +1,193 @@
+Now we price the atoms. Four families: long stock, short stock, long options, short
+options. Everything more complex is built by combining these and then arguing about
+how much the combination *reduces* the risk.
+
+### Long stock — the 50/25 baseline
+
+<RuleRef rule="long_stock" test="TestLongStockInitial_RegT" />
+
+<Formula>{`initial     = 0.50 × U × shares     // Reg T: finance at most half
+maintenance = 0.25 × U × shares     // FINRA 4210: keep 25% equity`}</Formula>
+
+Buy $10,000 of stock in a margin account: post $5,000, borrow $5,000. From then on your
+equity must stay above 25% of current market value. These two percentages are the
+anchors the whole system hangs off — you'll see `0.50` and `0.25`
+reappear inside every stock-containing structure.
+
+### Short stock — gross convention + the tier floor
+
+<RuleRef rule="short_stock" test="TestShortStockMaintenance_FiveDollarFloorBinds" />
+
+Shorting stock means selling shares you borrowed. The sale *proceeds* stay in the
+account as collateral, and you post 50% on top:
+
+<Formula>{`initial     = short_sale_proceeds + 0.50 × U × shares
+maintenance = U × shares + (U < $5  ? max($2.50 × shares, U × shares)
+                                    : max($5.00 × shares, 0.30 × U × shares))`}</Formula>
+
+Note the shape: **gross** — the full current value of the shares
+(`U × shares`, what it costs to buy them back) plus a cushion. The cushion has
+a low-price regime: under $5 the per-share floors dominate because cheap stocks can
+double overnight; above $5 it's the larger of $5/share or 30%. The locked-in
+proceeds are credited via `AppliedProceeds`, so a short that moves against
+you surfaces the mark-to-market loss in `CashCall` automatically.
+
+<Reveal q="Worked: short 100 shares at $12 (proceeds $1,200). Initial and maintenance at U=12?">
+  <p>Initial = 1200 + 0.50 × 12 × 100 = <strong>$1,800</strong>; CashCall = 1800 − 1200 = $600.</p>
+  <p>Maintenance = 12 × 100 + max($500, 0.30 × 1200 = $360) = 1200 + 500 = <strong>$1,700</strong>
+    (the $5/share floor binds — 30% would only be $360).</p>
+</Reveal>
+
+### Long options — pay in full, with one wrinkle
+
+<RuleRef rule="long_option_short_dated / long_option_long_dated_listed" />
+
+A long option can't lose more than its premium, so the requirement is simply the
+premium: `P0 × qty × mult`, in cash or margin alike. The wrinkle:
+options with **more than 9 months** to expiry are durable enough that listed
+ones get *loan value* — the requirement drops to
+**75% of current market value**, i.e. the broker will finance a quarter of it.
+The threshold lives in the YAML as
+`constants.long_option_loan_value_threshold_months: 9`.
+
+<Callout>
+  <p>
+    Why 75% on long-dated but 100% on short-dated? An option near expiry can evaporate in
+    days — terrible collateral. A two-year option behaves more like the stock itself, so
+    it can support a little credit. “How fast can this collateral vanish?” is the question
+    behind most of the manual's special cases.
+  </p>
+</Callout>
+
+### Short options — the 20%/10% formula (memorize this one)
+
+<RuleRef rule="short_put_uncovered" test="TestShortPutOTM_p28" page="pp.28–34" />
+
+The naked short option is where margin gets real. The requirement is
+**premium + max(basic, minimum)**:
+
+<Formula>{`basic   = 20% × U − OTM_amount     // a 20% adverse move, credited for OTM distance
+minimum = 10% × K  (puts)          // floor: never below 10% of what you'd owe
+        = 10% × U  (calls)
+requirement = qty × mult × (P + max(basic, minimum))`}</Formula>
+
+The intuition, piece by piece:
+
+- **20% × U** — “assume the stock moves 20% against you tonight.” That's the
+  regulator's stress scenario for a single equity.
+- **− OTM amount** — distance out of the money is a head start; a put $15 OTM
+  must eat through $15 before it hurts you, so $15/share is credited back.
+- **max(…, minimum)** — deep-OTM options would otherwise margin near zero, but
+  they're exactly the “picking up pennies in front of a steamroller” trade. The 10% floor
+  keeps a real deposit behind them. Note the asymmetry: puts floor on *K* (your
+  obligation is to buy at K), calls floor on *U* (your obligation scales with the
+  market).
+- **+ premium** — the current premium is the market's own estimate of the
+  option's danger; it rides on top.
+
+#### The four manual examples, exactly as the tests pin them
+
+| Position | U | basic | minimum | binds | Requirement |
+|---|---|---|---|---|---|
+| Short 80 put @ $2 (OTM) | 95 | 19 − 15 = 4 | 8 | min | **$1,000** |
+| Short 20 put @ $1.50 (ITM) | 19.50 | 3.90 − 0 | 2 | basic | **$540** |
+| Short 120 call @ $8.40 (ITM) | 128.50 | 25.70 − 0 | 12.85 | basic | **$3,410** |
+| Short 30 call @ $0.05 (OTM) | 26.38 | 5.28 − 3.62 | 2.638 | min | **$268.80** |
+
+(Per-share numbers; requirement = (P + binding branch) × 100. These are
+`TestShortPutOTM_p28`, `TestShortPutITM_p28`,
+`TestShortCallITM_p32`, `TestShortCallOTM_p32`.)
+
+#### Now drive it yourself
+
+<ShortOptionCalc />
+
+### The rates table — not all underlyings are 20%
+
+<Formula>{`equity, narrow ETF/index:   base 20%, min 10%
+broad index, broad ETF:     base 15%, min 10%    // diversified → smaller stress move
+leveraged ETF:              multiply by lev      // 2× ETF: 40%/20%`}</Formula>
+
+A broad index can't gap 20% the way a single stock can, so it stresses at 15%
+(`TestBroadETFShortPut_p30`: short 410 put on a broad ETF at 445.35 → the 10%-of-strike
+floor binds → $4,110). A leveraged ETF moves `lev`× its index, so the whole
+formula scales (`TestLeveragedETFShortPut_p29`: lev=2.0 → $14,800).
+
+<Callout kind="warn">
+  <p>
+    In limen, a <code>class</code> string that isn't in the rates table is a{' '}
+    <strong>hard error</strong>, never a silent 0%. A typo'd class falling back to zero
+    margin is the “confidently wrong number” failure mode — the worst outcome a margin
+    system can produce. Same philosophy as the stock rules refusing leveraged ETFs
+    (<code>lev != 1.0</code> → NoRule) rather than pricing them flat.
+  </p>
+</Callout>
+
+### The instrument zoo — where “stock” stops being simple
+
+The rates table hides a taxonomy worth knowing, because it's where reference data starts
+deciding correctness (plane 3 of the map):
+
+| Instrument | What it really is | Margin consequence |
+|---|---|---|
+| **ETF** | a fund holding the assets it tracks | broad ones stress at 15% — diversification is real |
+| **ETN** | an exchange-traded *note* — unsecured bank debt promising the index return | carries the issuer's credit risk on top of market risk; that's why `etn_broad ≠ etf_broad` in the rates table (20% vs 15%), and why long-dated ETN options get no 75% loan value |
+| **Leveraged ETF** | a fund engineered to return lev× the *daily* index move | everything scales by `lev`; and daily rebalancing means it drifts from lev× over weeks — why the ETF-hedge rule refuses them as cover entirely |
+| **Penny stock** | equity under ~$5 | short side: FINRA's own sub-$5 tiers (in the engine). Long side: only *house* haircuts exist — which is the next section's point |
+
+Every row of that table reaches the engine as two fields: `class` and
+`lev`. The engine cannot verify them — it trusts the host's reference data.
+A mislabeled ETN priced as a broad ETF under-margins by a quarter of the stress, silently.
+That's why instrument classification sits on the platform map as host-owned reference
+data with real operational weight, and why the corpus's stock-hedge findings centered on
+exactly these fields.
+
+#### What the house layer does with this — a preview
+
+The engine encodes *citable* regulation only. Everything firm-specific arrives as
+an override on top — and now you can read one. A house that wants 100% margin on penny
+longs writes, conceptually:
+
+<Formula>{`scope: symbol   key: PENNY   mode: floor
+amount: 100% × market_value
+→ requirement = max(engine_baseline, 1.00 × U × shares)`}</Formula>
+
+A `floor` can only raise ([house overlay & overrides](#m15) explains why `set` doesn't
+exist). The engine's flat 25% stays untouched and citable; the house's risk appetite
+lives in a bitemporal store with its own audit trail. One number, two layers, each
+defensible to a different authority — that separation is one of your locked decisions
+(naked-stock D5) doing its job.
+
+### Cash account: same atoms, different philosophy
+
+| Position | Cash-account treatment |
+|---|---|
+| Long stock / long option | Pay in full. Done. |
+| Short put | Deposit the full exercise price K × qty × mult (“cash-secured put”) — you can always afford assignment. |
+| Short call | Deposit the underlying shares themselves (that's a covered call) or an escrow receipt. |
+| Short stock, naked anything | `permitted: false` — no credit, no leverage, no exceptions. |
+
+### Self-check
+
+<Reveal q="Short 2× 50-strike puts @ $1.20, U=54, plain equity. Requirement?">
+  <p>OTM by 4. basic = 0.20 × 54 − 4 = 6.80; minimum = 0.10 × 50 = 5 → basic binds.
+    (1.20 + 6.80) × 100 × 2 = <strong>$1,600</strong>.</p>
+</Reveal>
+<Reveal q="Short 60-strike call @ $0.50, U=50. Which branch binds and why does the floor matter here?">
+  <p>basic = 10 − 10 = 0 (fully eaten by the OTM credit); minimum = 0.10 × 50 = 5 → floor
+    binds. (0.50 + 5) × 100 = <strong>$550</strong>. Without the floor this deep-OTM call
+    would margin at $50 — for a position that loses $4,000 if the stock doubles.</p>
+</Reveal>
+<Reveal q="Same short put, but class is broad_based_index. What changes?">
+  <p>basic uses 15% instead of 20%. For the K=50/U=54 put: basic = 8.10 − 4 = 4.10 vs
+    minimum 5 → now the <em>floor</em> binds: (1.20 + 5) × 100 × 2 = <strong>$1,240</strong>.
+    Diversification bought a smaller stress move, and the floor quietly became the binding
+    constraint — exactly the kind of branch-flip a corpus test should pin.</p>
+</Reveal>
+<Reveal q="Why does an ETN stress at 20% even when it tracks a broad index?">
+  <p>An ETN is unsecured debt of the issuing bank — the index exposure rides on top of the
+    issuer's credit risk. Diversification of the <em>index</em> doesn't diversify the{' '}
+    <em>promise</em>. The rates table encodes that as etn_broad keeping the 20% base, and
+    the long-dated loan-value rule excludes ETNs for the same reason: debt that can gap on
+    issuer news is worse collateral than a fund holding assets.</p>
+</Reveal>
