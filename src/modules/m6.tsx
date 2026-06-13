@@ -1,4 +1,4 @@
-import { Callout, Formula, Reveal } from '../components/ui.jsx'
+import { Callout, Formula, Reveal } from '@/components/shared'
 
 export default function M6() {
   return (

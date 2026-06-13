@@ -1,5 +1,5 @@
-import PayoffChart from '../components/PayoffChart.jsx'
-import { Callout, Formula, Reveal, RuleRef } from '../components/ui.jsx'
+import PayoffChart from '@/components/PayoffChart'
+import { Callout, Formula, Reveal, RuleRef } from '@/components/shared'
 
 export default function M4() {
   return (

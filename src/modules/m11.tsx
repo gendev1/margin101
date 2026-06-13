@@ -1,7 +1,22 @@
-import { Callout, Reveal } from '../components/ui.jsx'
+import { Callout, Reveal } from '@/components/shared'
+import { cn } from '@/lib/utils'
 
 // Status: built | partial | missing | host (host-owned BY DESIGN, not a gap)
-const PLANES = [
+type Status = 'built' | 'partial' | 'missing' | 'host'
+
+interface PlaneItem {
+  s: Status
+  name: string
+  does: string
+  future: string
+}
+
+interface PlaneDef {
+  title: string
+  items: PlaneItem[]
+}
+
+const PLANES: PlaneDef[] = [
   {
     title: 'Plane 1 — Calculation kernel (the math)',
     items: [
@@ -139,24 +154,45 @@ const PLANES = [
   },
 ]
 
-function Plane({ p }) {
-  const score = it => (it.s === 'built' || it.s === 'host') ? 1 : it.s === 'partial' ? 0.5 : 0
+const STATUS: Record<Status, { edge: string; chip: string; label: string }> = {
+  built: { edge: 'border-l-good', chip: 'bg-good/12 text-good', label: 'built' },
+  partial: { edge: 'border-l-warn', chip: 'bg-warn/12 text-warn', label: 'partial' },
+  missing: { edge: 'border-l-muted-foreground/50 opacity-90', chip: 'bg-muted-foreground/15 text-muted-foreground', label: 'missing' },
+  host: { edge: 'border-l-primary', chip: 'bg-primary/12 text-primary', label: 'host-owned' },
+}
+
+function Plane({ p }: { p: PlaneDef }) {
+  const score = (it: PlaneItem) => (it.s === 'built' || it.s === 'host') ? 1 : it.s === 'partial' ? 0.5 : 0
   const pct = Math.round(p.items.reduce((s, it) => s + score(it), 0) / p.items.length * 100)
   return (
-    <div className="plane">
-      <div className="plane-head">
-        <h4>{p.title}</h4>
-        <div className="meter"><div style={{ width: pct + '%' }} /></div>
-        <span className="pct">{pct}%</span>
+    <div className="my-4.5 mb-7">
+      <div className="mb-2.5 flex items-baseline gap-3.5">
+        <h4 className="!m-0 text-[15px]">{p.title}</h4>
+        <div className="h-[5px] max-w-[200px] flex-1 overflow-hidden rounded-sm bg-secondary">
+          <div className="h-full bg-gradient-to-r from-primary to-good" style={{ width: pct + '%' }} />
+        </div>
+        <span className="font-mono text-[11.5px] tabular-nums text-muted-foreground">{pct}%</span>
       </div>
-      <div className="sysmap">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(248px,1fr))] gap-2.5">
         {p.items.map(it => (
-          <div key={it.name} className={'syscard ' + it.s}>
-            <div className="name">{it.name}
-              <span className="chip">{it.s === 'host' ? 'host-owned' : it.s}</span>
+          <div
+            key={it.name}
+            className={cn(
+              'rounded-lg border border-l-[3px] bg-card px-4 py-3 transition-all hover:-translate-y-px hover:border-input',
+              STATUS[it.s].edge
+            )}
+          >
+            <div className="flex items-baseline justify-between gap-2 text-[13.5px] font-semibold">
+              {it.name}
+              <span className={cn('whitespace-nowrap rounded-full px-2 py-px font-mono text-[9.5px] uppercase tracking-[0.06em]', STATUS[it.s].chip)}>
+                {STATUS[it.s].label}
+              </span>
             </div>
-            <div className="does">{it.does}</div>
-            <div className="future" dangerouslySetInnerHTML={{ __html: it.future }} />
+            <div className="mt-1 text-xs leading-normal text-muted-foreground">{it.does}</div>
+            <div
+              className="mt-1.5 text-[11.5px] leading-normal text-warn/70 [&_b]:font-semibold [&_b]:text-warn"
+              dangerouslySetInnerHTML={{ __html: it.future }}
+            />
           </div>
         ))}
       </div>
@@ -174,11 +210,11 @@ export default function M11() {
         <strong>host-owned by design</strong> — a boundary you deliberately drew (go-sdk-facade,
         #227), not a gap. The yellow line in each card is what the finished form looks like.
       </p>
-      <div className="maplegend">
-        <span className="l-built">built</span>
-        <span className="l-partial">partial — open work</span>
-        <span className="l-missing">not started</span>
-        <span className="l-host">host-owned by design</span>
+      <div className="my-2.5 mb-1.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span><span className="text-good">■</span> built</span>
+        <span><span className="text-warn">■</span> partial — open work</span>
+        <span><span className="text-muted-foreground/60">■</span> not started</span>
+        <span><span className="text-primary">■</span> host-owned by design</span>
       </div>
 
       {PLANES.map(p => <Plane key={p.title} p={p} />)}

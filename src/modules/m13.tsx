@@ -1,4 +1,4 @@
-import { BuildLens, Callout, Panel, Reveal } from '../components/ui.jsx'
+import { BuildLens, Callout, Panel, Reveal } from '@/components/shared'
 
 const TYPES = [
   {
@@ -81,23 +81,23 @@ export default function M13() {
       </ol>
 
       <h3>Applying the playbook to the missing systems</h3>
-      <div className="studygrid">
-        <Panel title="TIMS / portfolio margin">
+      <div className="my-3.5 grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
+        <Panel className="m-0" title="TIMS / portfolio margin">
           <p><strong>Type:</strong> numerical model.</p>
           <p><strong>Primary new risk:</strong> wrong methodology or weak oracle, not weak YAML coverage.</p>
           <p><strong>Verification:</strong> scenario sanity tests, model checks, tolerance-banded vendor compare.</p>
         </Panel>
-        <Panel title="Decomposition optimizer">
+        <Panel className="m-0" title="Decomposition optimizer">
           <p><strong>Type:</strong> search / optimization.</p>
           <p><strong>Primary new risk:</strong> missing the cheapest legal partition.</p>
           <p><strong>Verification:</strong> exhaustive oracle on small portfolios, replayable partition traces.</p>
         </Panel>
-        <Panel title="SMA / buying power">
+        <Panel className="m-0" title="SMA / buying power">
           <p><strong>Type:</strong> stateful ledger.</p>
           <p><strong>Primary new risk:</strong> accounting drift over time.</p>
           <p><strong>Verification:</strong> event-sequence invariants, ledger snapshots, rule-specific regression cases.</p>
         </Panel>
-        <Panel title="Margin-call lifecycle">
+        <Panel className="m-0" title="Margin-call lifecycle">
           <p><strong>Type:</strong> workflow / ops.</p>
           <p><strong>Primary new risk:</strong> missed actions, wrong deadlines, broken desk state.</p>
           <p><strong>Verification:</strong> state-machine tests, due-date logic, operational auditability.</p>

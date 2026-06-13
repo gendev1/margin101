@@ -1,35 +1,37 @@
-import Home from './home.jsx'
-import M0 from './m0.jsx'
-import M1 from './m1.jsx'
-import M2 from './m2.jsx'
-import M3 from './m3.jsx'
-import M4 from './m4.jsx'
-import M5 from './m5.jsx'
-import M6 from './m6.jsx'
-import M7 from './m7.jsx'
-import M8 from './m8.jsx'
-import M9 from './m9.jsx'
-import M10 from './m10.jsx'
-import M11 from './m11.jsx'
-import M12 from './m12.jsx'
-import M13 from './m13.jsx'
-import M14 from './m14.jsx'
-import M15 from './m15.jsx'
-import M16 from './m16.jsx'
-import M17 from './m17.jsx'
-import M18 from './m18.jsx'
-import M19 from './m19.jsx'
-import M20 from './m20.jsx'
-import M21 from './m21.jsx'
-import M22 from './m22.jsx'
-import M23 from './m23.jsx'
-import M24 from './m24.jsx'
-import M25 from './m25.jsx'
+import type { ModuleDef, SectionDef, SectionWithModules } from './types'
+
+import Home from './home'
+import M0 from './m0'
+import M1 from './m1'
+import M2 from './m2'
+import M3 from './m3'
+import M4 from './m4'
+import M5 from './m5'
+import M6 from './m6'
+import M7 from './m7'
+import M8 from './m8'
+import M9 from './m9'
+import M10 from './m10'
+import M11 from './m11'
+import M12 from './m12'
+import M13 from './m13'
+import M14 from './m14'
+import M15 from './m15'
+import M16 from './m16'
+import M17 from './m17'
+import M18 from './m18'
+import M19 from './m19'
+import M20 from './m20'
+import M21 from './m21'
+import M22 from './m22'
+import M23 from './m23'
+import M24 from './m24'
+import M25 from './m25'
 
 // Section order IS the learning path: position math → account machine →
 // account state → real-time → the other methodology → then the decision
 // record, practice, and the map of what's left.
-export const SECTIONS = [
+export const SECTIONS: SectionDef[] = [
   {
     id: 'desk',
     label: 'Study Desk',
@@ -77,7 +79,7 @@ export const SECTIONS = [
   },
 ]
 
-export const MODULES = [
+export const MODULES: ModuleDef[] = [
   {
     id: 'home',
     title: 'Study desk',
@@ -421,7 +423,7 @@ export const MODULES = [
   },
 ]
 
-export const MODULES_BY_SECTION = SECTIONS.map(section => ({
+export const MODULES_BY_SECTION: SectionWithModules[] = SECTIONS.map(section => ({
   ...section,
   modules: MODULES.filter(module => module.section === section.id),
 }))

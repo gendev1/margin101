@@ -1,4 +1,4 @@
-import { Callout, Formula, Reveal, RuleRef } from '../components/ui.jsx'
+import { Anatomy, AnatomyCard, Callout, Formula, Reveal, RuleRef } from '@/components/shared'
 
 export default function M14() {
   return (
@@ -12,18 +12,18 @@ export default function M14() {
       </p>
 
       <h3>The five quantities (learn these cold)</h3>
-      <div className="anatomy">
-        <div className="card"><div className="sym">LMV</div><div className="name">Long market value</div>
-          <div className="desc">Current value of everything you own: long stock + long option value. Always ≥ 0.</div></div>
-        <div className="card"><div className="sym">SMV</div><div className="name">Short market value</div>
-          <div className="desc">Current cost to close everything you're short. Carried as a negative number — it's value you owe.</div></div>
-        <div className="card"><div className="sym">cash / debit</div><div className="name">Cash balance</div>
-          <div className="desc">Positive = uninvested cash sitting in the account. Negative (a “debit balance”) = the margin loan the broker extended you.</div></div>
-        <div className="card"><div className="sym">equity</div><div className="name">Equity</div>
-          <div className="desc">LMV + SMV + cash. The customer's own money at stake — what's left if everything were closed right now.</div></div>
-        <div className="card"><div className="sym">excess</div><div className="name">Excess equity</div>
-          <div className="desc">equity − maintenance requirement. The cushion. Negative excess = margin call territory.</div></div>
-      </div>
+      <Anatomy>
+        <AnatomyCard sym="LMV" name="Long market value"
+          desc="Current value of everything you own: long stock + long option value. Always ≥ 0." />
+        <AnatomyCard sym="SMV" name="Short market value"
+          desc="Current cost to close everything you're short. Carried as a negative number — it's value you owe." />
+        <AnatomyCard sym="cash / debit" name="Cash balance"
+          desc="Positive = uninvested cash sitting in the account. Negative (a “debit balance”) = the margin loan the broker extended you." />
+        <AnatomyCard sym="equity" name="Equity"
+          desc="LMV + SMV + cash. The customer's own money at stake — what's left if everything were closed right now." />
+        <AnatomyCard sym="excess" name="Excess equity"
+          desc="equity − maintenance requirement. The cushion. Negative excess = margin call territory." />
+      </Anatomy>
 
       <h3>One account, worked end to end</h3>
       <p>

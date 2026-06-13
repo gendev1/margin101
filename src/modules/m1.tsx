@@ -1,6 +1,6 @@
-import PayoffChart from '../components/PayoffChart.jsx'
-import { LegLab } from '../components/labs.jsx'
-import { Callout, Reveal, RuleRef } from '../components/ui.jsx'
+import PayoffChart from '@/components/PayoffChart'
+import { LegLab } from '@/components/labs'
+import { Callout, Reveal, RuleRef } from '@/components/shared'
 
 export default function M1() {
   return (

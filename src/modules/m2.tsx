@@ -1,5 +1,5 @@
-import { ShortOptionCalc } from '../components/labs.jsx'
-import { Callout, Formula, Reveal, RuleRef } from '../components/ui.jsx'
+import { ShortOptionCalc } from '@/components/labs'
+import { Callout, Formula, Reveal, RuleRef } from '@/components/shared'
 
 export default function M2() {
   return (

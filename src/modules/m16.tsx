@@ -1,4 +1,4 @@
-import { Formula, Panel, Reveal, RuleRef } from '../components/ui.jsx'
+import { Formula, Panel, Reveal, RuleRef } from '@/components/shared'
 
 export default function M16() {
   return (

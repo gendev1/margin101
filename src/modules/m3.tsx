@@ -1,6 +1,6 @@
-import PayoffChart from '../components/PayoffChart.jsx'
-import { SpreadLab } from '../components/labs.jsx'
-import { Callout, Formula, Panel, Reveal, RuleRef } from '../components/ui.jsx'
+import PayoffChart from '@/components/PayoffChart'
+import { SpreadLab } from '@/components/labs'
+import { Callout, Formula, Panel, Reveal, RuleRef } from '@/components/shared'
 
 export default function M3() {
   return (

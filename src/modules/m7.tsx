@@ -1,4 +1,4 @@
-import { Callout, Panel, Reveal } from '../components/ui.jsx'
+import { Callout, Panel, Reveal } from '@/components/shared'
 
 export default function M7() {
   return (

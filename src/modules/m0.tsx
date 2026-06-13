@@ -1,4 +1,4 @@
-import { Callout, Formula, Panel, Reveal } from '../components/ui.jsx'
+import { Anatomy, AnatomyCard, Callout, Formula, Ledger, LedgerRow, Panel, Reveal } from '@/components/shared'
 
 export default function M0() {
   return (
@@ -42,24 +42,24 @@ export default function M0() {
         These are the exact field names a leg carries in <code>internal/engine</code> and in
         every CEL formula in <code>rules/cboe_baseline.yaml</code>:
       </p>
-      <div className="anatomy">
-        <div className="card"><div className="sym">U</div><div className="name">Underlying price</div>
-          <div className="desc">Current market price of the stock/ETF/index the option is written on. “U=95” means the stock trades at $95 right now.</div></div>
-        <div className="card"><div className="sym">K</div><div className="name">Strike price</div>
-          <div className="desc">The fixed price written into the contract — what the buyer may buy (call) or sell (put) at. Never moves.</div></div>
-        <div className="card"><div className="sym">P / P0</div><div className="name">Premium per share</div>
-          <div className="desc">The option's own price. P0 = premium when the position was opened (used for initial margin); P = current premium (used for maintenance).</div></div>
-        <div className="card"><div className="sym">qty</div><div className="name">Contracts</div>
-          <div className="desc">How many option contracts. “Short 2 puts” → qty=2.</div></div>
-        <div className="card"><div className="sym">mult</div><div className="name">Multiplier</div>
-          <div className="desc">Shares per contract — 100 for standard equity options. Dollar impact of anything per-share = value × qty × mult.</div></div>
-        <div className="card"><div className="sym">side</div><div className="name">Long / Short</div>
-          <div className="desc">Long = you bought it (own the right). Short = you sold/wrote it (carry the obligation).</div></div>
-        <div className="card"><div className="sym">expiration</div><div className="name">Expiry date</div>
-          <div className="desc">When the right dies. After expiry an option is worth exactly its intrinsic value or nothing.</div></div>
-        <div className="card"><div className="sym">class / lev</div><div className="name">Rate class & leverage</div>
-          <div className="desc">Which row of the rates table applies (equity 20/10, broad index 15/10…) and the ETF leverage factor (2× ETF → lev=2.0).</div></div>
-      </div>
+      <Anatomy>
+        <AnatomyCard sym="U" name="Underlying price"
+          desc="Current market price of the stock/ETF/index the option is written on. “U=95” means the stock trades at $95 right now." />
+        <AnatomyCard sym="K" name="Strike price"
+          desc="The fixed price written into the contract — what the buyer may buy (call) or sell (put) at. Never moves." />
+        <AnatomyCard sym="P / P0" name="Premium per share"
+          desc="The option's own price. P0 = premium when the position was opened (used for initial margin); P = current premium (used for maintenance)." />
+        <AnatomyCard sym="qty" name="Contracts"
+          desc="How many option contracts. “Short 2 puts” → qty=2." />
+        <AnatomyCard sym="mult" name="Multiplier"
+          desc="Shares per contract — 100 for standard equity options. Dollar impact of anything per-share = value × qty × mult." />
+        <AnatomyCard sym="side" name="Long / Short"
+          desc="Long = you bought it (own the right). Short = you sold/wrote it (carry the obligation)." />
+        <AnatomyCard sym="expiration" name="Expiry date"
+          desc="When the right dies. After expiry an option is worth exactly its intrinsic value or nothing." />
+        <AnatomyCard sym="class / lev" name="Rate class & leverage"
+          desc="Which row of the rates table applies (equity 20/10, broad index 15/10…) and the ETF leverage factor (2× ETF → lev=2.0)." />
+      </Anatomy>
 
       <h3>Moneyness: ITM, OTM, intrinsic value</h3>
       <p>
@@ -115,11 +115,11 @@ intrinsic_put(K, U)  = max(0, K − U)   // right to sell at K, worth K−U when
       <p>Every evaluation produces a <code>Result</code> with three dollar figures. Worked
         example — the manual's p.42 vertical call spread:</p>
       <Panel title="Result anatomy — vertical call spread, Cboe manual p.42">
-        <div className="ledger">
-          <div className="row"><span>Requirement (gross)</span><span>$880.00</span></div>
-          <div className="row"><span>AppliedProceeds (premium received)</span><span className="pos">− $840.00</span></div>
-          <div className="row total"><span>CashCall (what you must deposit)</span><span className="neg">$40.00</span></div>
-        </div>
+        <Ledger>
+          <LedgerRow label="Requirement (gross)" value="$880.00" />
+          <LedgerRow label="AppliedProceeds (premium received)" value="− $840.00" tone="pos" />
+          <LedgerRow label="CashCall (what you must deposit)" value="$40.00" tone="neg" total />
+        </Ledger>
       </Panel>
       <ul>
         <li><strong>Requirement</strong> — the gross collateral the rule demands. This matches the

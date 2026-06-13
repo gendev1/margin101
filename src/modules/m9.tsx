@@ -1,4 +1,4 @@
-import { Callout, Decision, Formula, Reveal } from '../components/ui.jsx'
+import { Callout, Decision, Formula, Reveal } from '@/components/shared'
 
 export default function M9() {
   return (

@@ -1,4 +1,4 @@
-import { BuildLens, Callout, Panel, Reveal } from '../components/ui.jsx'
+import { BuildLens, Callout, Panel, Reveal } from '@/components/shared'
 
 export default function M12() {
   return (

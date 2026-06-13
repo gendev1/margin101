@@ -1,4 +1,4 @@
-import { Callout, Formula, Reveal, RuleRef } from '../components/ui.jsx'
+import { Callout, Formula, Reveal, RuleRef } from '@/components/shared'
 
 export default function M15() {
   return (

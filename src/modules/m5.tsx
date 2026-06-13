@@ -1,6 +1,6 @@
-import PayoffChart from '../components/PayoffChart.jsx'
-import { RatioLab } from '../components/labs.jsx'
-import { Callout, Formula, Reveal, RuleRef } from '../components/ui.jsx'
+import PayoffChart from '@/components/PayoffChart'
+import { RatioLab } from '@/components/labs'
+import { Callout, Formula, Reveal, RuleRef } from '@/components/shared'
 
 export default function M5() {
   return (
