@@ -1,0 +1,104 @@
+<Fork
+  order="8 / 10"
+  status="speculative · ROADMAP backlog #21"
+  q="How do you harden the persisted explain/trace contract before more regimes and richer policy inputs arrive to extend it?"
+/>
+
+Once `cmd/replay` disappears and `#227` makes `Explain` the surviving read surface, the
+persisted trace stops being a side feature of the API. It becomes the only way a host service
+can prove what limen did — the audit record *is* the product. That raises the stakes on a gap
+the roadmap has carried since backlog item `#21`: persisted traces omit `account_type` and
+`phase`, and the review-fixes epic `#208` deferred fixing it because the SDK facade was in
+flight. This fork upgrades the trace contract **before** the router and richer overlays make
+the omission problem worse — because every regime and policy dimension added later writes into
+this same envelope.
+
+### Where the code stands today
+
+- `pkg/limen` exposes the trace-related types and `Explain`.
+- `internal/audit` and `internal/mongostore` persist traces to the sink and store.
+- `#208` already hardened **trace ID derivation**, but the **payload** gap remains: `account_type` and `phase` are still missing from the persisted record.
+- Current docs and tests are still partly shaped by the old replay/API story, so the contract you'd be stabilizing isn't even cleanly described yet.
+
+The formulas and the identity work are done. What's missing is a *versioned envelope* that
+fully identifies the calculation regime and context — `account_type`, `phase`, regime identity,
+rulebook composition, and the evaluate/overlay/refdata/policy seals — and a rule for what
+happens to records that predate it.
+
+### The options
+
+<Options>
+  <Option name="Versioned additive schema" lean>
+
+  Add an explicit trace-envelope **version** field, append the missing context (`account_type`, `phase`, regime identity, composition seals), and define compatibility behavior for older records that lack the new fields. Old traces stay readable; new ones carry more. Lowest blast radius, and it keeps the door open for the router and rich overlays to add their own fields the same way.
+
+  </Option>
+  <Option name="Breaking redesign">
+
+  Throw out the current envelope shape and design the "right" v2 from scratch — flat, normalized, optimally indexed in `internal/mongostore`. Cleanest end state, but it breaks `Explain` on every existing record and forces a hard migration before anything new can ship. The cost lands exactly when you can least afford it: while the router is still in flight.
+
+  </Option>
+  <Option name="Typed event stream">
+
+  Persist the calculation as an ordered stream of typed events rather than one envelope, and reconstruct the explain view by folding it. Maximally extensible and replay-friendly, but it's a much larger contract surface than the deliverable asks for, and it reopens the replay-tooling question this fork explicitly leaves out of scope.
+
+  </Option>
+</Options>
+
+The draft leans **versioned additive**: it's the only option that satisfies the actual
+constraint — *preserve host-facing explain semantics across old and new trace versions* —
+without a flag-day migration. It's the same restraint `#208` used when it hardened trace
+identity without touching the payload.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Should old traces be **lazily up-converted at read time**, or should `Explain` return a *version-tagged* envelope and leave migration explicit to the host?
+- Once multi-regime routing ([f7](#f7)) lands, is **regime identity** a flat field or a richer nested structure?
+
+</OpenQuestions>
+
+The first question is the load-bearing one: it decides whether version logic lives inside the
+SDK (lazy up-convert, hosts never see a version) or at the boundary (tagged envelope, hosts
+branch on it). Keep **trace identity and payload versioning separate** — the same logical
+calculation may still need a different persisted schema, so don't let one decision quietly fix
+the other.
+
+### Precedents & where it plugs in
+
+- This fork **extends exactly** the audit, trace-and-replay, content-addressing, and bitemporal-seal machinery taught in [your decisions: the system](#m9) — it doesn't introduce a new mechanism, it versions an existing one.
+- Precedent ADR: `audit-versioning` is the template — how the audit record was versioned without breaking existing readers is the move to copy here.
+- The rulebook **content-SHA** and the refdata/policy/override hashes already exist; v2's job is to carry them forward coherently after evaluate-layer composition and router routing, not to invent new seals.
+- Planes: **2 — Verification**, **6 — Integration & ops**.
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** contract / schema-evolution — stabilize a persisted shape so it can grow additively instead of breaking.
+- **Primary new risk:** a schema that can't evolve without breaking replay and recon — a v2 that's just as rigid as v1, so the *next* field (a router regime, a rich overlay dimension) forces another flag day.
+- **The oracle you'd need:** round-trip replay that's **byte-identical** for identical inputs; version-migration tests proving `Explain` reads both old and new records through one method; and `internal/mongostore` index/query tests where patterns now depend on the new `account_type` / `phase` fields.
+
+### Self-check
+
+<Reveal q="Why version the envelope now instead of after the router and rich overlays land?">
+
+Because the router ([f7](#f7)) and rich overlay dimensions ([f9](#f9)) both *write into this
+envelope*. If you let them extend an unversioned schema, every one of them either breaks
+`Explain` on old records or invents its own ad-hoc compatibility hack. Establishing the
+version field and the additive-evolution rule *first* means each later regime adds a field the
+same disciplined way — the boundary work de-risks the regime work, which is the whole point of
+the sequence.
+
+</Reveal>
+
+<Reveal q="What breaks if you pick the breaking-redesign option?">
+
+`Explain` stops working on every trace persisted before the cutover, so any host proving "what
+limen did last quarter" loses its audit trail until a full migration runs. The deliverable's
+hard requirement is *preserve host-facing explain semantics across old and new trace
+versions* — a breaking redesign violates that directly, and it spends its migration budget at
+the worst possible moment, while the router contract is still unsettled.
+
+</Reveal>

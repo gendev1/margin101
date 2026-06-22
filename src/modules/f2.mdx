@@ -1,0 +1,101 @@
+<Fork
+  order="2 / 10"
+  status="speculative"
+  q="When a host supplies reference data and policy context, which facts actually matter to each rule — and what happens to the answer when one of them is missing?"
+/>
+
+The SDK boundary already decided that hosts supply hydrated market, security, and policy
+facts; limen does not fetch them. That is the right architecture, but it leaves a gap. After
+the SDK-only surface landed ([#227](#m9)), richer house logic can grow faster than the repo's
+ability to *prove* which host facts a given rule depends on. The deliverable for this fork is
+a documented, test-backed **evidence model**: for every rule family, which facts it consumes,
+which are required vs optional, how absence changes the outcome, and which trace seals prove
+the host-supplied state was actually applied.
+
+The missing-data half is the substance. A fact being absent is not one behavior — it is four.
+Some absences must be a hard **error** (you cannot price the rule without it), some a
+**warning** (the answer is computed but flagged), some an **incomplete** result, and some are
+simply **ignored** (the rule never read that fact). Today none of that is written down or
+enforced; it lives implicitly in whatever each evaluator happens to do.
+
+### Where the code stands today
+
+- `pkg/limen/types.go` defines the public `SecurityFacts` and `PolicyContext` shapes — fields like `ADV20`, `MarketCap`, `Volatility30D`, `HardToBorrow`, and `BorrowRate` are already exposed.
+- `pkg/limen/policy.go` normalizes pending-cash aggregates and typed attributes (risk profiles, pending cash) into canonical form.
+- `internal/overlay/facts.go` and `internal/overlay/policy.go` expose subsets of those facts into the overlay evaluator.
+- `pkg/limen/types.go` and the trace seals already mention `RefdataSHA` and `PolicySHA`, but **no repo-wide dependency matrix** ties rules to facts.
+- `rules/house_rules.notes.md` sketches future policy layering — but it is a sketch, not an evidence document.
+
+So the fact *surface* exists and the seals exist. What is missing is the layer that maps rules to facts and makes missing-data behavior intentional and tested.
+
+In scope: a rule-to-fact dependency matrix (baseline, overlay, planned rich-policy), missing-data semantics per fact family, hash-sensitivity fixtures, and the normative host hydration contract. Out of scope: fetching any data from inside limen, new risk dimensions, and provider reconciliation transport.
+
+### The options
+
+<Options>
+  <Option name="Documented dependency matrix + tests" lean>
+
+  Build a code-adjacent catalog mapping each rule (or family) to the facts it consumes, requiredness, missing-data behavior, and affected trace fields — then back it with tests that exercise the matrix directly, not just end-to-end example outputs. This is the deliverable as the epic frames it: the evidence layer that *gates* every future overlay or regime rule.
+
+  </Option>
+  <Option name="Fail-loud on any missing consumed fact">
+
+  Simplest possible rule: if a rule reads a fact and it is absent, error. No warnings, no incompletes. Defensible and unambiguous, but wrong for facts that are genuinely optional (a volatility-aware overlay should degrade gracefully, not refuse to compute baseline Reg T). Collapses four behaviors into one.
+
+  </Option>
+  <Option name="Documented defaults for absent facts">
+
+  Each fact gets a documented default applied silently when absent. Keeps results computable, but it is the dangerous option here: a default is an *invented* host fact, and the seals would then prove a value the host never supplied. Defeats the point of the evidence model.
+
+  </Option>
+</Options>
+
+The draft leans to the matrix-plus-tests option because the real product is *provability*, not just a computed number. The same instinct as the [declarative-rule-preconditions](#m9) ADR: make the dependency explicit and checkable rather than buried in evaluator code.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Should the dependency matrix live as **code-adjacent testdata**, as **prose docs**, or **both**? Testdata is enforceable in CI; prose is readable for host authors. The answer shapes whether the doc-review merge gate is automatable.
+- Do future regimes reuse the same `SecurityFacts` surface, or should some **risk-engine-only facts get their own namespace**? Reusing one surface keeps hosts hydrating one shape; namespacing keeps Reg-T facts from drifting into risk-only territory.
+
+</OpenQuestions>
+
+The namespace question is the load-bearing one — it constrains the [multi-regime router](#m9) before that fork is even started. Decide it here, or the regime work inherits an implicit answer.
+
+### Precedents & where it plugs in
+
+- The facts being catalogued are exactly [the language](#m0)'s reference-data fields — `class`, `lev`, `tracks_index`, `multipliers` — plus the market/security facts in `SecurityFacts`. The matrix is just making "which rule reads which field" formal.
+- [Pricing single legs](#m2) is where required market-data/proceeds facts must **fail loud**: there is no safe default for the data a margin number is computed from. That establishes the `error` end of the missing-data spectrum.
+- Constrains the [system decisions](#m9) on trace seals — `RefdataSHA` / `PolicySHA` must move when and only when a *semantically relevant* fact changes.
+- Precedent ADRs: **declarative-rule-preconditions** (preconditions as data, not code) and **naked-stock-rules** (a rule family whose fact requirements are already explicit).
+- Planes: **3 — Data plane**, **1 — Calculation kernel**, **2 — Verification**.
+
+### How to decide it (the playbook)
+
+- **Problem type:** contract / evidence modeling — not new math. The output is a matrix and a set of guarantees, not a new formula.
+- **Primary new risk:** seals that lie. If `RefdataSHA` perturbs when an *unused* fact changes, or fails to perturb when a *consumed* one does, the evidence model is worse than none — it asserts a guarantee it does not hold.
+- **The oracle you'd need:** hash-sensitivity tests (changing an unused fact must not move the relevant seals; changing a consumed fact must), golden tests for each missing-data behavior across the four families, and a doc-review gate where every later overlay/regime rule declares its fact dependencies in the catalog before merge.
+
+### Self-check
+
+<Reveal q="Why is 'documented defaults for absent facts' the trap option, not the safe one?">
+
+Because a default is a fact limen invented. The whole point of the evidence model is that the
+seals (`RefdataSHA`, `PolicySHA`) prove which *host-supplied* state produced the answer. If an
+absent fact gets a silent default, the seal now certifies a value the host never sent — the
+audit trail asserts something false. Computability is not the goal; provable provenance is. A
+missing required fact should error or warn, not be quietly filled in.
+
+</Reveal>
+
+<Reveal q="What makes the missing-data question four behaviors instead of one?">
+
+Because facts differ in how a rule uses them. A proceeds figure with no value cannot produce a
+number — that is an `error`. A volatility-aware overlay fact can be absent and the overlay
+simply degrades — that is a `warning` or `incomplete`. A fact no rule in the active set reads
+is `ignored`. Collapsing these to a single "missing = error" rule either refuses to compute
+valid baseline margin, or hides genuinely degraded results. The dependency matrix exists
+precisely to assign the right one of the four to each fact family.
+
+</Reveal>

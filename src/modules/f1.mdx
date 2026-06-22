@@ -1,0 +1,105 @@
+<Fork
+  order="1 / 10"
+  status="speculative"
+  q="Once the HTTP API is gone, how does the SDK make a host-supplied CalculationSnapshot defend itself — and how loudly should it fail when the snapshot is incomplete?"
+/>
+
+This is the first fork because it hardens the boundary everything else sits on. After `#227`
+the repo stops owning an HTTP edge and a reconciliation harness; the only surviving integration
+seam is `pkg/limen`, where hosts build `CalculationSnapshot` values and call `Calculate` or
+`CalculateBatch` directly. That is the right product shape, but it puts all the weight on
+snapshot quality — a host can satisfy the Go type checker while still drifting on completeness,
+policy-context semantics, or decompose-mode expectations. This fork turns "host supplies a
+complete snapshot" from a documentation promise into a repo-backed contract with fixtures, a
+machine-checkable validation surface, and an explicit failure taxonomy.
+
+### Where the code stands today
+
+- `pkg/limen/types.go` defines `CalculationSnapshot`, `Position`, `SecurityFacts`, `PolicyContext`, and the account/bookkeeping boundary.
+- `pkg/limen/validation.go` and `pkg/limen/policy.go` reject malformed inputs, but the validation surface is **request-local** — it is not organized as a host *conformance program*.
+- `internal/sdkcore` and `pkg/limen/mapping.go` translate SDK-facing shapes into `internal/engine`, `internal/account`, `internal/overlay`, and `internal/optdecomp`.
+- `docs/consuming.md` explains the intended boundary, but it is still prose-first.
+- `examples/sdk` and `test/importability` prove the facade compiles and runs, but they do **not** define a durable fixture corpus covering host-edge cases.
+
+So validation exists and the facade runs. What is missing is a corpus that pins host behavior and a vocabulary for *how* a snapshot is incomplete.
+
+### Scope, and the line around it
+
+In scope: a canonical host-snapshot fixture corpus (baseline-only, house mode, decompose mode, policy-context mode, and partial inputs), an explicit hard-error / incomplete / warning distinction, conformance helpers that assert "complete enough for mode X" before calculation, and fixture-backed parity between `pkg/limen` and `internal/sdkcore`. Out of scope: new margin formulas or rulebook behavior, provider or Sterling integration, a non-Go SDK, and richer overlay dimensions beyond the validation hooks this needs.
+
+### The options
+
+<Options>
+  <Option name="Strict validation at the boundary">
+
+  Push every reference-data and policy-fact gap to a hard error in `pkg/limen/validation.go`. The host can never compute a misleading number. Strongest safety, but it makes the SDK brittle: any host that is mid-onboarding or feeding a partial book gets a refusal instead of a best-effort answer, and that is exactly the behavior `CalculationResult.Complete` was meant to express softly.
+
+  </Option>
+  <Option name="Conformance reporting as a first-class signal" lean>
+
+  Keep calculation tolerant, but back `CalculationResult.Complete` with a richer classification: invalid request shape, missing required reference data, policy facts absent for house-mode rules, decompose unsupported or partial. Docs and tests stop matching on ad hoc message strings. Lower blast radius than hard-failing, and it turns "incomplete" from a boolean into something a host can act on — at the cost of designing and stabilizing a new report type.
+
+  </Option>
+  <Option name="Fixture corpus first">
+
+  Build `testdata/hostsnapshots/` with request/expected-result pairs keyed by mode *before* touching validation, and let the corpus reveal which gaps actually matter. Cheapest, most reversible, and it de-risks the other two options — but on its own it ships no new guarantee; it is a prerequisite, not a destination.
+
+  </Option>
+</Options>
+
+The draft leans toward conformance reporting, layered on the corpus: a stable, machine-checkable
+taxonomy is the thing that makes the boundary hard to misuse without making it hostile to partial
+hosts — the same restraint the [SDK boundary](#m9) used in deciding the facade is the only surface.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Should **missing house-mode reference facts** always degrade to *incomplete*, or are some dimensions severe enough to **hard-fail** the calculation? This is the line between the strict and tolerant options, and it is a policy decision dressed as validation.
+- Does the conformance report stay **internal test infrastructure**, or should hosts be able to **call it directly before `Calculate`**? If hosts can call it, it becomes public contract surface that must stay stable across releases.
+
+</OpenQuestions>
+
+The second question is the load-bearing one: a report that hosts call is a published API you can
+never quietly change; one that stays in `internal/` is yours to evolve. Decide that before you
+name a single field.
+
+### Precedents & where it plugs in
+
+- This is the SDK input gate, so it lives downstream of [system decisions](#m9) — the `go-sdk-facade` ADR that made `pkg/limen` the only product surface is the reason this fork exists at all.
+- The snapshot fields it validates are the host inputs taught in [the language](#m0); this fork is about *defending* those inputs, not extending them.
+- Conformance runs *before* the unchanged [evaluate pipeline](#m6) — it gates entry, it does not re-implement engine logic.
+- Precedent ADRs: `go-sdk-facade` (the boundary that created the requirement) and `declarative-rule-preconditions` (the template for expressing "this input is sufficient for this rule" as data rather than scattered code).
+- Planes: **3 — Data plane** (the snapshot contract and fixture corpus), **6 — Integration & ops** (the host-facing seam), **2 — Verification** (parity and negative fixtures).
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** contract / boundary design — define a sufficiency vocabulary, not a new algorithm. The hard work is taxonomy and naming, not computation.
+- **Primary new risk:** a false "complete" signal — a host that passes validation but gets a silently wrong number — or, conversely, an over-strict gate that rejects legitimate partial books. Both are conformance regressions, not math bugs.
+- **The oracle you'd need:** the fixture corpus under `testdata/hostsnapshots/` with request/expected-result pairs per mode; **round-trip parity** so the same fixture drives the same account snapshot and completeness signal through `pkg/limen` *and* `internal/sdkcore`; negative fixtures for malformed policy facts, missing reference data, duplicate position IDs, invalid account settings, and unsupported leg shapes; and an external importability test that loads a real fixture from outside `internal/` and proves the documented host path works without helper-only imports.
+
+### Self-check
+
+<Reveal q="Why does removing the HTTP API make snapshot validation a fork at all, rather than a no-op?">
+
+Because the HTTP layer was doing invisible work. An API boundary normalizes, rejects, and shapes
+input before anything reaches the engine — guardrails the calculator never had to own. Once the
+host calls `pkg/limen` directly, those rails are gone, and a snapshot that type-checks can still be
+semantically incomplete: missing policy facts for a house rule, an unsupported decompose shape, a
+partial book. The fork is deciding what defends the input now — and how loudly it complains — when
+the only thing between the host and `internal/engine` is the SDK itself.
+
+</Reveal>
+
+<Reveal q="Why is 'should hosts call the conformance report directly?' the question that constrains the field design?">
+
+Because it sets the stability contract. A report that lives in `internal/` test infrastructure can
+change shape every release — it answers only to the corpus. The moment a host can call it before
+`Calculate`, every field, enum value, and severity level becomes public API that downstream systems
+key on, and you can no longer evolve the taxonomy without a breaking change. You cannot safely name
+the classifications until you know which side of that line they live on, which is why this open
+question gates the data-model work rather than following it.
+
+</Reveal>

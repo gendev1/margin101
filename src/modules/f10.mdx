@@ -1,0 +1,129 @@
+<Fork
+  order="10 / 10"
+  status="speculative · ROADMAP backlog #08"
+  q="What is the minimal first version of the first non-Reg-T risk regime — a scenario-based shock engine that prices host snapshots under configured shocks — sitting on top of the multi-regime router and a richer host snapshot?"
+/>
+
+This is the last fork, and the biggest prize. Every fork before it hardened a boundary or
+widened Reg-T policy. This one crosses a discipline line: limen ships its **first non-Reg-T
+account-level risk regime** — a scenario-based shock engine that prices a host snapshot under
+configured shocks and returns a normalized result through the multi-regime router. The epic
+backlog calls this the "poor-man's PM" direction: delta-based plus downside/upside shocks,
+volatility-scaled scenarios, and liquidity haircuts that produce a TIMS-shaped number without
+committing to a full OCC pricing stack.
+
+The reason it is genuinely different work: every other fork is **rule transcription** —
+read a citable margin manual, encode the formula in YAML, verify against published examples.
+This fork is a **numerical problem**. There is no page that lists "the answer" for an arbitrary
+book under an arbitrary shock grid; the answer is *computed* by repricing positions across a
+scenario set and taking the worst case. That changes the math, the failure modes, and — most
+of all — the oracle.
+
+It is deliberately last because it is **breadth work, not boundary-hardening**, and because it
+depends on two things being in place first: the [multi-regime router](#f7) (so there is a
+normalized result contract for more than one regime to sit behind) and a **richer host
+snapshot** ([#f1](#f1), [#f2](#f2)) carrying the extra risk inputs a shock engine needs.
+
+### Where the code stands today
+
+- `docs/architecture.md` explicitly says the current engine does **not** price options or implement risk-margin methodologies yet.
+- `pkg/limen/types.go` does **not** carry explicit greeks or shock-engine-only risk inputs today.
+- `pkg/limen/types.go` *does* already expose some relevant facts, e.g. `Volatility30D`.
+- There is no `internal/regime` router or `internal/margin` normalized result contract yet — both are prerequisites this fork assumes.
+
+### Scope, and the line around it
+
+In scope: a first shock-engine input contract for host snapshots, a deterministic shock
+evaluator behind the future regime router, normalized account-level results with **scenario
+attribution** (which scenario bound the requirement), and comparative examples against
+baseline/house outputs. Explicitly out of scope: full TIMS or OCC scenario-grid fidelity,
+external pricing libraries or vol surfaces, and replacing the baseline Reg-T engine.
+
+### The options
+
+<Options>
+  <Option name="Intrinsic-only shock grid first" lean>
+
+  A small set of configured price shocks (down/up bands), repriced on intrinsic value plus
+  host-supplied deltas — no vol surface, no external pricer. Deterministic, fully self-contained,
+  and the smallest thing that produces a TIMS-shaped number. Matches the epic's "keep v1 simple
+  and deterministic" line.
+
+  </Option>
+  <Option name="Full theoretical repricing with a vol surface">
+
+  Build the real thing: an option pricing model plus volatility surfaces, repricing every leg
+  across a two-dimensional price/vol grid. This is the destination, but it imports a large math
+  surface and a hard calibration problem all at once — out of scope for v1 by design.
+
+  </Option>
+  <Option name="Buy vs build the pricer">
+
+  License an established pricing/risk library instead of writing one. Removes the hardest math
+  but adds a dependency, a tolerance-reconciliation problem against a black box, and a licensing
+  decision — a real fork to settle, not an obvious yes.
+
+  </Option>
+</Options>
+
+The draft leans to the **minimal scenario grid first**: configured scenarios, no vol surface,
+no external pricer, prove the regime plumbing end-to-end, then deepen the model. It is the same
+restraint the rest of the speculative stack used — ship the smallest correct version behind a
+contract, then expand.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Are **host-supplied greeks** acceptable for v1, or does limen need its own coarse internal approximations to keep the contract honest?
+- Should the first shock engine be a **house-policy regime only**, or a peer to baseline Reg-T from day one?
+
+</OpenQuestions>
+
+The first question is the deep one: if the host supplies greeks, the engine's correctness is
+only as good as inputs it cannot verify; if limen approximates internally, the math surface
+grows immediately. The second decides whether this ships as one more swappable overlay baseline
+or as a first-class regime the router selects.
+
+### Precedents & where it plugs in
+
+- The concepts are taught upstream: [risk-based margin: the idea](#m20), [TIMS: the scenario grid](#m22), and [portfolio margin: the account](#m24). This fork is the first time the codebase *computes* one rather than describing it.
+- It sits directly on the [multi-regime router](#f7): reuse its normalized result contract so hosts do not integrate a second top-level surface.
+- Per the platform map, this is the **biggest remaining piece of math** in the system. It needs an option pricing model and (eventually) vol surfaces — and a genuinely **new oracle discipline**. There is no citable manual page to diff against, so verification shifts to brute-force pricers, property-based invariants, and tolerance-banded reconciliation against a vendor number.
+- Precedent ADR: `layer3-house-overlay`. The shock engine slots **under** the overlay as a swappable baseline rather than replacing the engine — TIMS sits beneath the overlay, not in place of it.
+- Planes: **1 — Calculation kernel**, **3 — Data plane**, **2 — Verification**.
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** a numerical model — theoretical repricing across a scenario grid, worst-case selection, deterministic attribution. Not rule transcription.
+- **Primary new risk:** **wrong methodology or a weak oracle** — not weak YAML coverage. The danger is a number that looks plausible but is computed wrong, with nothing authoritative to catch it.
+- **The oracle you'd need:** scenario sanity tests (monotonicity and bounds on stable books), model checks against a brute-force reference pricer, property-based invariants (e.g. a hedged book cannot require more than its naked legs), and **tolerance-banded** comparison against a vendor/TIMS number rather than exact-match against a published page.
+
+### Self-check
+
+<Reveal q="Why is this fork last, and why does it need the router first?">
+
+It is last because it is the only one that adds a new *discipline* rather than hardening an
+existing boundary — and disciplines are riskiest to add when the ground underneath is still
+moving. It needs the [router](#f7) first because the router is the contract that lets *more than
+one* regime coexist behind one normalized account result. Build the shock engine before that
+contract exists and you decide regime-routing implicitly, buried inside a numerical engine —
+the worst possible place to make a boundary decision. It also needs the richer snapshot
+([#f1](#f1), [#f2](#f2)) because a shock engine consumes risk inputs the Reg-T snapshot never
+carried. The sequence exists precisely so the boundary work de-risks the regime work.
+
+</Reveal>
+
+<Reveal q="Why doesn't the corpus-diff oracle from the rule forks work here?">
+
+Because there is no corpus to diff against. Reg-T rules have published worked examples, so the
+oracle is "match the manual." A shock engine computes a number for an arbitrary book under an
+arbitrary grid — no manual lists that. So correctness has to come from *properties* (invariants
+that must hold for any input), a *reference computation* (a brute-force pricer you trust to be
+slow-but-right), and *tolerance bands* against a vendor number, since two correct pricers will
+disagree in the last decimals. That shift — from "is it the cited value" to "is it within band
+and does it obey the invariants" — is the new discipline this fork introduces.
+
+</Reveal>

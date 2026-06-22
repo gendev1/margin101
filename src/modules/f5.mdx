@@ -1,0 +1,79 @@
+<Fork
+  order="5 / 10"
+  status="speculative · ROADMAP backlog #09"
+  q="Should limen recognize and margin cross-position two-leg spreads at the account level, instead of requiring beneficial pairings to be pre-grouped into one position?"
+/>
+
+This is the repo's oldest major remaining product gap. The optimizer shipped and the SDK
+facade shipped, but both still assume beneficial pairings mostly happen *inside* a
+caller-supplied position. That is fine for pre-classified examples; it is not enough for
+portfolio-level Reg T on a raw book. If limen is the calculator a host embeds, it needs a
+disciplined answer for account-level spread pairing — the Sterling-style pair-up semantics.
+
+### Where the code stands today
+
+- `internal/optimizer` decomposes arbitrary loose legs into strategy candidates — but only *within* one position.
+- `internal/optdecomp` wires optimizer-backed decomposition into account evaluation, and its package comments **explicitly defer** cross-position regrouping to ROADMAP `#09`.
+- `internal/account` aggregates already-evaluated position outcomes; it does not build new cross-position synthetic positions.
+- `rules/cboe_baseline.yaml` already holds the spread formulas the pair-up logic would target once positions are regrouped.
+
+So the formulas exist and the within-position search exists. The missing piece is a planner that proposes legal cross-position pairings and feeds synthetic positions back through the unchanged [evaluate pipeline](#m6).
+
+### Scope, and the line around it
+
+In scope: account-level candidate generation for two-leg pairings, deterministic selection and attribution, regrouped synthetic positions through the existing pipeline, and traces that explain which original positions were paired. Out of scope: universal *multi-leg* regrouping, risk-margin engines, and any host-side oracle transport.
+
+### The options
+
+<Options>
+  <Option name="Opt-in mode first" lean>
+
+  New behavior hangs off explicit configuration; the default account path is unchanged until it's proven. Lowest blast radius, reversible, and lets you build the fixture corpus before flipping anyone over.
+
+  </Option>
+  <Option name="Default account path">
+
+  Cross-position pair-up becomes the standard evaluate path once stable. Simpler mental model and the "right" long-term answer — but it changes the number on *every* raw-book account at once, so the oracle has to be airtight first.
+
+  </Option>
+</Options>
+
+The draft leans opt-in: it keeps the SDK request shape stable and hangs the behavior off explicit mode rather than implicit magic — the same restraint the [house overlay](#m15) used with raise-only modes.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Does the first version run only on **explicit opt-in**, or should it become the default account-evaluation path once stable?
+- How should hosts reference **synthetic spreads** in downstream audit or UI flows, when the original identity is now *multiple* position IDs?
+
+</OpenQuestions>
+
+The second question is the deep one: it's an identity problem, not a math problem. A synthetic spread has no single host position ID, so every downstream system that keyed off position identity ([traces](#m9), recon, UI) needs an answer before the pairing logic is worth shipping.
+
+### Precedents & where it plugs in
+
+- Builds directly on [the optimizer](#m16) (branch-and-bound decomposition) and [account aggregation](#m14) — it's a new planner stage between them, not a rewrite of either.
+- The spread math itself is already taught in [spreads & time](#m3); this fork is about *finding* the pairs, not pricing them.
+- Precedent: the `wire-l05-optimizer` decision (how decomposition got wired into the live path opt-in via `Decompose: true`) is the template — add capability behind an explicit flag, prove it, then consider defaulting.
+- Planes: **1 — Calculation kernel**, **2 — Verification**, **6 — Integration & ops**.
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** search / optimization — identify legal cross-position pairings without exploding the search space.
+- **Primary new risk:** missing the cheapest legal partition, or non-deterministic pairing/attribution. Same failure family as the optimizer itself.
+- **The oracle you'd need:** account-level fixtures with same-underlying two-leg opportunities distributed across *separate* positions; residual tests proving unpaired legs still get correct standalone margin; determinism tests for pairing order and stable attribution.
+
+### Self-check
+
+<Reveal q="Why is the synthetic-spread identity question harder than the pairing math?">
+
+The pairing math reuses formulas that already exist and are corpus-verified. The identity
+question has no existing answer: once two host positions become one synthetic spread, anything
+that keyed on a single position ID — audit traces, recon against vendor house calls, a margin
+desk UI — needs a rule for referencing a thing made of several IDs. That's new contract surface
+across multiple systems, which is why it's an open question and not just an implementation detail.
+
+</Reveal>

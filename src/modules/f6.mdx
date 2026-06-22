@@ -1,0 +1,121 @@
+<Fork
+  order="6 / 10"
+  status="speculative · ROADMAP backlog #20"
+  q="How do you make decompose latency predictable and bounded for SDK callers, without silently changing the margin number?"
+/>
+
+The optimizer shipped, and on wide books it behaves. The trouble is a deep single position:
+branch-and-bound over many loose legs is exponential, so a portfolio with ~16+ legs can blow
+the search up and starve the request it's running inside. That was tolerable when the API was a
+demo host. After the SDK-only surface ([#227](#m9)), the library *is* the integration path, and
+hosts call it on latency-sensitive code. An unbounded search in a synchronous caller is a hang —
+which is exactly what GitHub issue #188 reported: a deep single position wedged the synchronous
+decompose request.
+
+The deliverable here is not new product behavior. It's making the already-shipped decompose
+capability *operationally honest*: enforce a predictable work budget, expose honest failure
+signals to SDK callers, and ship a benchmark corpus so pathological portfolios can't quietly
+regress into production.
+
+### Where the code stands today
+
+- `internal/optimizer` implements the branch-and-bound decomposition — the part that explodes.
+- `internal/optdecomp` wires decomposition into account evaluation (entered opt-in via `Decompose: true`).
+- `scripts/optimizer-bench.sh` already measures the wide vs. deep cost axes and documents the current blow-up profile.
+- The current budget counts **states explored**, not work done — and it's internal, not a host-facing contract.
+- There is no stable benchmark corpus, and no explicit "calculation incomplete because optimizer budget exhausted" semantics.
+
+So the search and a crude budget both exist. What's missing is a budget that tracks real cost,
+a contract that tells the caller when it was hit, and fixtures that pin the cost down.
+
+### The options
+
+These are genuinely different shapes for "bound the search," not the same idea in three costumes.
+
+<Options>
+  <Option name="Work-oriented node budget + explicit outcome" lean>
+
+  Replace the state-count budget with a work/cost budget, and when it's exhausted, surface that
+  as a first-class, testable outcome in decomposition metadata — not a silent truncation. This is
+  the epic's center of gravity: deterministic, host-visible, and it makes "budget \> N work units"
+  mean the same thing on every machine.
+
+  </Option>
+  <Option name="Wall-clock time budget">
+
+  Cap the search at a time limit instead of a work count. Trivially intuitive for a host ("give me
+  an answer in 50ms"), but **non-deterministic** — the same portfolio crosses the line differently
+  on a loaded vs. idle host, so fixtures can't pin it and two callers get different answers. Out of
+  scope as the core contract for exactly this reason.
+
+  </Option>
+  <Option name="Better pruning / heuristics">
+
+  Make the search itself cheaper so the deep case rarely hits any budget. Real long-term win, but it
+  doesn't *bound* anything — a smarter search still has a worst case, so you'd ship it on top of a
+  budget, never instead of one.
+
+  </Option>
+</Options>
+
+The draft leans on the work-oriented budget with an explicit exhaustion outcome: it's the only
+option that's both deterministic and honest, and it's the precondition for the other two being safe
+to add later.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- When the budget is hit, what does the caller get back — a **hard error**, an **incomplete account result**, or a **successful baseline-only fallback** with explicit warnings?
+- Does the budget knob belong in the **public SDK options**, or should the first version stay **internal and fixed** until it's proven?
+
+</OpenQuestions>
+
+The first question is the whole fork. A hard error is honest but turns a slow portfolio into a
+failed one. A baseline-only fallback always returns *a* number — but a baseline-only number on a
+deep book is conservatively *higher* margin than a fully-decomposed one, so a silent fallback
+under-groups the position and over-charges the account. Whichever you pick, the rule must be that
+an incomplete result can never masquerade as a complete one.
+
+### Precedents & where it plugs in
+
+- This is a rework *inside* [the optimizer (B&B)](#m16), not a new stage — the search and the
+  `internal/optdecomp` wiring stay; the budget and its outcome change.
+- Precedent: the `wire-l05-optimizer` decision (how decomposition got wired into the live path
+  opt-in via `Decompose: true`) is the template — the budget contract rides the same opt-in surface
+  rather than altering the default path.
+- The result lands in `sdkcore` / `pkg/limen` as decomposition metadata + warnings, which is why
+  the exhaustion outcome is a *contract* question, not just an internal tuning detail.
+- Planes: **1 — Calculation kernel**, **6 — Integration & ops**.
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** search / performance — bound an exponential branch-and-bound so a single deep position can't starve a synchronous host request (the issue #188 failure).
+- **Primary new risk:** a budget that changes the *answer*, not just the latency. A truncated or fallback search can silently **under-group** legs and report a higher, conservative margin that looks complete. The danger isn't slowness anymore — it's a wrong number wearing a success status.
+- **The oracle you'd need:** the wide/deep profiles from `scripts/optimizer-bench.sh` frozen into `testdata/` fixtures; failure-path tests proving budget exhaustion is surfaced honestly and never masquerades as complete; and old-vs-new comparisons on already-well-behaved portfolios to catch regressions in the numbers that *don't* hit the budget.
+
+### Self-check
+
+<Reveal q="Why is a time budget rejected as the core contract when it's the most intuitive for a host?">
+
+Because the SDK's value is a deterministic, reproducible margin number. A wall-clock cap makes the
+*outcome* depend on host load: the same ~16-leg portfolio finishes on an idle box and gets cut off
+on a busy one, so two callers — or the same caller twice — get different answers and a fixture can't
+pin the behavior. A work-oriented budget crosses the same threshold every time regardless of CPU
+speed, so "budget exhausted" is testable. Time budgets can come *later* as a host-side convenience,
+on top of the deterministic one.
+
+</Reveal>
+
+<Reveal q="Why is the budget's primary risk about the answer rather than the latency?">
+
+Bounding the search is the easy half — any cap stops the hang. The hard half is what you return when
+you stop early. A deep position that doesn't finish decomposing falls back to a less-grouped (or
+baseline) view, which is *conservatively higher* margin. If that comes back tagged as a normal
+success, the host charges too much and never knows the optimizer gave up. So the real deliverable
+isn't the budget — it's the honest signal that says "this number is incomplete," which is exactly the
+open question above.
+
+</Reveal>

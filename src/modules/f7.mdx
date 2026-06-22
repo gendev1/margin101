@@ -1,0 +1,113 @@
+<Fork
+  order="7 / 10"
+  status="speculative · ROADMAP backlog #11"
+  q="Should limen expose one normalized account-level result contract and one routing seam over baseline, house overlay, and future risk engines — instead of letting each new regime grow its own top-level API shape?"
+/>
+
+This is the **hinge** of the whole forward roadmap. Every fork before it hardens the library
+boundary or widens Reg T product breadth; every fork after it adds *policy* and *new regimes*.
+But a risk-based regime — TIMS, SPAN, a [risk-shock engine](#f10) — only makes architectural
+sense once *more than one regime can sit behind a shared contract*. Without the router, the
+first risk engine has to invent the regime-selection seam implicitly, as a side effect, in the
+worst possible place. The deliverable here is exactly that seam: one normalized account-level
+result contract, and one routing point where a host asks for a regime and reasons about its
+output the same way regardless of which engine produced it.
+
+The need sharpened after the [SDK-only surface](#f1) landed. With `pkg/limen` as the product,
+the core package now owes hosts a disciplined answer to "how do I ask for a different regime,
+and how do I compare two regimes' outputs?" This fork creates that answer without trying to
+build any future engine at once.
+
+### Where the code stands today
+
+- `pkg/limen` and `internal/sdkcore` orchestrate exactly one main regime: baseline plus optional house overlay, returning one baseline/house-oriented result contract.
+- `internal/overlay/evaluate.go` deliberately avoids becoming the long-term orchestrator — and `internal/overlay/doc.go` already calls out a future `internal/regime` orchestrator by name.
+- `docs/architecture.md` names the router as the path to future TIMS / SPAN / shock work.
+- There is no `internal/margin` or `internal/regime` package today; trace and result types are still centered on the current baseline/house flow.
+
+So the *intent* is documented in comments and architecture notes, but the abstraction does not
+exist yet. This fork is about creating it carefully, because it becomes the contract every
+later regime is built against.
+
+In scope: normalized account-level result types, a regime router/orchestrator that delegates to
+the baseline-plus-house path first, explicit regime selection in the SDK request path, and a
+comparison-friendly output shape. Out of scope: building full TIMS or SPAN, replacing any
+formula or overlay behavior, and provider reconciliation transport.
+
+### The options
+
+<Options>
+  <Option name="Thin result contract now" lean>
+
+  Define the normalized account-level result and a minimal router seam, extract today's baseline/house path behind it, and stop. No new engine. The contract is small, shared fields plus per-regime metadata and trace hooks; everything else waits for a real second regime to pull on it. Lowest blast radius, and it keeps the SDK request shape stable for current callers.
+
+  </Option>
+  <Option name="Full strategy-pattern router">
+
+  Build the complete `internal/regime` orchestrator up front — pluggable engine interface, multi-regime-per-call comparison output, the works — anticipating TIMS/SPAN/shock. Most "finished" looking, but you are designing the abstraction against *imagined* engines, which is precisely how the wrong abstraction locks out the regime you actually build later.
+
+  </Option>
+  <Option name="Config-driven regime selection">
+
+  Push regime choice into rule/config data rather than the request path, so a host selects a regime by naming a config bundle. Elegant for ops, but it conflates *which methodology* with *which rulebook* and makes per-call `Explain` metadata harder to keep coherent across regimes.
+
+  </Option>
+</Options>
+
+The draft leans **thin contract now**: prove the seam with a fake regime before the first real
+engine lands, the same restraint the [house overlay](#m15) showed by shipping behind explicit
+modes rather than implicit magic. The contract is the durable part; the engines come later.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Is **house overlay modeled as its own regime**, or as the default Reg T regime with a house phase attached? Either is defensible — but it must be documented as a deliberate choice, not left implicit, because every future engine inherits whatever you decide here.
+- Should the first normalized result expose **multiple regime outputs in one call**, or keep one-regime-per-call semantics until a real comparison use case appears?
+
+</OpenQuestions>
+
+The first question is the load-bearing one. It defines the *shape* of "regime," and a regime
+shape that quietly assumes the baseline/house structure will fight you the moment a
+risk-shock engine — which has no baseline phase at all — needs to fit the same contract.
+
+### Precedents & where it plugs in
+
+- The key structural insight is in [the platform map](#m11): risk-based margin slots **under** the overlay as a swappable baseline, not in place of the engine. The router is what makes that slot real — a regime is inserted *beneath* the house layer, and the house overlay composes on top of whatever baseline the router selected.
+- What makes the router *insertable* is that the recon spec is **methodology-agnostic** (per [the missing systems](#m12) and the SDK-only surface): reconciliation reasons about a normalized account result, not about Reg T specifically, so a new regime that emits the same contract reconciles for free.
+- This is the concrete next step for [risk-based margin: the idea](#m20) — the idea has no home until there is a contract for an alternative baseline to plug into.
+- Precedent ADRs: `layer3-house-overlay` (how a second computation layer composed without rewriting the first) and `account-house-recon` (how a normalized account result was reconciled against vendor house calls — the template for methodology-agnostic recon).
+- Planes: **1 — Calculation kernel**, **5 — Account state & lifecycle**, **6 — Integration & ops**.
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** architecture / contract design — not search, not formula. The output is an interface and a result shape, validated by parity, not by a margin number.
+- **Primary new risk:** the **wrong abstraction locks out a future regime**. If the normalized contract bakes in baseline/house assumptions, the first non-Reg-T engine can't fit it, and you re-cut the SDK surface — the exact churn this fork exists to prevent.
+- **The oracle you'd need:** golden parity tests proving current baseline/house outputs survive the router extraction byte-for-byte; contract tests on the shared normalized fields; and a **fake/stub regime** that proves the router can add an engine *without* touching the SDK surface again. The fake regime is the real oracle here — it's the only way to test an abstraction against a regime that doesn't yet exist.
+
+### Self-check
+
+<Reveal q="Why build the router before the risk-shock engine, not alongside it?">
+
+Because the router is a *contract* and the engine is a *consumer* of it. If you build them
+together, the contract is shaped by exactly one engine — and that engine has a baseline phase
+the next one won't. You'd encode TIMS-specific or shock-specific structure into what's supposed
+to be the neutral seam, then discover the abstraction is wrong when regime two arrives. Building
+the router first, validated by a *fake* regime, forces the contract to be regime-neutral before
+any real engine can bias it. The sequence de-risks the regime work; jumping the line
+re-introduces the risk the order was designed to remove.
+
+</Reveal>
+
+<Reveal q="If no second regime exists yet, why not just keep the current single-regime result type?">
+
+Because the cost of the missing seam is paid later and all at once. Today's result type works
+fine for baseline plus house — but it *is* a top-level API shape, and the next regime would
+either bolt on a second one or mutate this one breakingly. Both leak the regime distinction
+into every host. Defining the normalized contract now, while there's only one regime to
+preserve, is the cheapest moment to get the shape right: you have a known-correct behavior to
+hold byte-for-byte and no second engine yet pulling the contract toward its own assumptions.
+
+</Reveal>

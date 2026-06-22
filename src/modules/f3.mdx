@@ -1,0 +1,84 @@
+<Fork
+  order="3 / 10"
+  status="speculative · ROADMAP backlog #17"
+  q="How should hosts compose a baseline rulebook plus a house evaluate rulebook deterministically, without forking one monolithic YAML file?"
+/>
+
+limen already lets hosts layer *overlay* documents. The evaluate layer underneath them does not get the same treatment: it still effectively assumes one compiled rulebook document. This fork closes that gap so a host can stack baseline strategy rules, house strategy overrides, and rate-table amendments as ordered fragments with deterministic precedence — and prove, via provenance, exactly which fragment overrode which prior rule or rate.
+
+The need sharpens after the SDK-only surface ([#227](#m9)). Once limen is "an embeddable calculator plus rulebooks," rulebook composition becomes a first-class adoption concern rather than an internal detail — and the point of this fork is to fill that gap *without* collapsing house policy into dynamic overrides alone.
+
+### Where the code stands today
+
+- `pkg/limen/interfaces.go` lets hosts provide multiple overlay YAML documents, merged in order.
+- `internal/overlay/rulebook.go` already has deterministic multi-file composition semantics — but only for the overlay layer.
+- `pkg/limen/RulesProvider` still sources **one** baseline YAML payload.
+- `rules/cboe_baseline.yaml` is monolithic; `rules/house_rules.notes.md` explicitly calls out future engine selection and house strategy rules.
+- There is **no** evaluate-layer provenance model for "which fragment overrode which prior rule or rate."
+
+So the overlay layer is the working template — deterministic multi-file composition already exists there. The missing piece is bringing that same discipline down to the baseline evaluate layer and the `RulesProvider` contract.
+
+In scope: ordered evaluate fragments, explicit conflict semantics, composition provenance in hashes and traces, example fixtures, and the guide that draws the line between composition and runtime overrides. Out of scope: rich overlay dimensions, override CRUD, new risk regimes, and any authoring UI.
+
+### The options
+
+<Options>
+  <Option name="Layered rulebook merge" lean>
+
+  Keep one logical compiled rulebook, but build it from ordered fragments through a single composition loader — the mirror of `internal/overlay/rulebook.go`. Conflict semantics are defined once: exact rule-ID replacement, rate-table override, additive new rules with deterministic ordering. A single-document baseline must still compile *identically* (golden parity), so existing callers see no change.
+
+  </Option>
+  <Option name="Separate evaluate passes">
+
+  Run baseline and house fragments as distinct evaluate passes and reconcile results afterward. Conceptually clean separation, but it doubles the evaluation surface, complicates determinism, and makes provenance "which pass won" rather than "which fragment replaced which rule." Harder to hash and harder to explain.
+
+  </Option>
+  <Option name="Precedence-config layer">
+
+  Express precedence as external configuration over a flat rule pool rather than as fragment order. Flexible, but it decouples precedence from the artifacts authors actually edit, so the effective stack becomes hard to reason about and hard to seal. Provenance gets harder, not easier.
+
+  </Option>
+</Options>
+
+The draft leans **layered rulebook merge**: it reuses the deterministic semantics the overlay layer already proved, keeps one compiled rulebook for the engine, and makes precedence a property of fragment order — which is exactly what provenance needs to be auditable.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Should evaluate-layer house fragments be able to **disable baseline rules outright**, or only **replace them by ID** with an explicit new definition?
+- Do hosts need **composition-time validation** that a house fragment references only baseline rule families that still exist?
+
+</OpenQuestions>
+
+The first question is the deep one: outright disable vs replace-by-ID is a policy-safety decision, not a parsing detail. "Disable" lets a house silently remove a baseline protection; "replace-by-ID with an explicit definition" forces the author to state what they put in its place — and keeps every effective rule attributable to a concrete fragment. The second question is the guardrail that makes the first safe: a fragment that references a baseline family that no longer exists is a latent footgun unless composition-time validation catches it.
+
+### Precedents & where it plugs in
+
+- This is the evaluate-layer twin of [house overlay & overrides](#m15) — same restraint, one layer down. The overlay loader is the working precedent.
+- The composed result flows through [the engine](#m6) unchanged: the compiled rulebook is still one rulebook; only its *construction* changes.
+- It must stay legible inside [system decisions](#m9): runtime targeted raises/floors/blocks remain a host-store concern, **not** part of evaluate-rule composition — that line is the whole point of the composition guide.
+- Precedent ADRs: `layer3-house-overlay` (deterministic multi-document merge with precedence) and `declarative-rule-preconditions` (rules carry their own applicability, so additive fragments compose cleanly).
+- Planes: **1 — Calculation kernel**, **6 — Integration & ops**.
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** deterministic composition / merge — turn ordered fragments into one compiled rulebook with stable, explainable precedence.
+- **Primary new risk:** non-deterministic or silent precedence — a fragment overriding a rule or rate without the effective stack reflecting it, or single-document baselines drifting from their pre-composition hash. Provenance that doesn't change when fragment order or content changes is worse than no provenance.
+- **The oracle you'd need:** loader tests for replacement, additive extension, ordering, and conflicting duplicate definitions; golden parity proving a single-document baseline still compiles identically; fixtures proving composed evaluate rulebooks and overlay rulebooks coexist in house mode; trace/hash tests showing provenance shifts when fragment order or content shifts.
+
+### Self-check
+
+<Reveal q="Why is composition kept separate from runtime overrides — aren't both just 'house policy'?">
+
+They are different lifecycles. Evaluate-layer composition is *authored* policy: versioned YAML fragments that compile into the rulebook and are sealed by hash, so the effective stack is reproducible and auditable. Runtime targeted raises, floors, and blocks are *operational* decisions that live in a host store and change per request. Collapsing them into one layer would either make authored policy mutable at runtime (un-auditable) or force operational decisions through a compile step (too slow, wrong granularity). The composition guide exists precisely to keep that line bright.
+
+</Reveal>
+
+<Reveal q="Why does 'replace by ID' beat 'disable' even though disable is simpler to implement?">
+
+Because attribution is the deliverable, not just the merge. With replace-by-ID, every rule in the effective stack traces to a concrete fragment that defines it, so provenance can answer "which fragment produced this rule." A bare disable creates a *hole* — a baseline rule that's gone with nothing standing in its place — which is exactly the case provenance can't explain and an auditor can't reconstruct. Disable is simpler to code and harder to trust.
+
+</Reveal>

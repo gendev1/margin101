@@ -1,0 +1,92 @@
+Everything in [Core Mechanics](#m0) taught what the engine *should* do. This section is the
+audit that asked, at scale, what it *actually* does. On the `test-corpus-1000` branch, the
+engine was run against **~2,324 oracle-derived cases** — all green, race-clean — and then
+attacked with a **220-mutant campaign**. The result is the sharpest picture you have of where
+the system is sound and where it leaks, and it is the launch point for every decision after it.
+
+### What the corpus actually is
+
+It is not one test file — it's a verification apparatus living in `internal/corpus/`:
+
+- **1,924 data cases** across 14 YAML batches (one per family), run by a single data-driven runner (`corpus_test.go`).
+- **Algorithmic properties** (`properties_test.go`): permutation invariance, scaling metamorphics, qty↔mult factorization, tiny-magnitude checks, shadow-aware box runners.
+- **Relocated suites**: overlay (182 subtests), optimizer (47), account (16).
+- **The decompose corpus** (`decompose_test.go`, 1,370 subtests): a 340-portfolio exhaustive-vs-branch-and-bound differential (B&B was exactly optimal on all 340), plus attribution conservation, sub-position re-evaluation consistency, never-worse-than-naked, order invariance, and the budget-monotonicity harness ROADMAP #20 wants.
+
+<Callout kind="tip">
+
+The corpus is itself the answer to [the verification plane](#m11). Most shops never build this —
+it's the apparatus that lets a *number* be wrong-flagged before a customer ever sees it. Treat
+it as infrastructure, not a test suite: it's how every fix in this section announces itself.
+
+</Callout>
+
+### The verdict in one paragraph
+
+**The arithmetic layer is sound.** Across every formula grid the engine matched an
+independently-derived oracle with zero unexplained numeric divergences, and every seeded
+formula bug was caught. What is *not* up to spec lives at the **edges of rule applicability** —
+where a position is unsound, malformed, or under-hedged and the engine hands back a
+confidently-small number instead of a rejection. That is the most dangerous failure shape a
+margin system has, and it is exactly where the corpus concentrated its fire.
+
+### The finding taxonomy
+
+Every finding is graded by which direction it errs — and only one direction is an emergency:
+
+| Class | Meaning | Urgency |
+|-------|---------|---------|
+| **U1–U6 — under-margining** | an unsound/under-hedged position gets a *too-small* number | fix first — this is real money at risk |
+| **O1–O4 — over-margining** | conservative / methodology cliffs that *over*-charge | decide, then document |
+| **T1–T7 — taxonomy** | the same defect classifies differently across paths (NoRule vs error) | downstream recon noise |
+| dead guards | defense-in-depth that can never fire | keep or delete, deliberately |
+| scope gaps | known-unsupported shapes, now pinned explicitly | informs the roadmap |
+
+The next lesson, [the under-margining classes](#c1), works each U in turn — they're the ones
+that decide whether the demo's numbers can be trusted. [Conservatism & taxonomy](#c2) covers the
+O/T findings and the **remediation epic** that fixes them.
+
+### Why "pinned" is the load-bearing word
+
+Every finding is pinned by a **named test that asserts the *current* (wrong) behavior**. That
+inverts the usual relationship: the bug is green, on purpose. A fix doesn't add a test — it
+*flips* an existing one, which is the per-finding done-signal. After the remediation epic,
+"corpus run #2" re-validates the whole net at once. So the audit is not a document that rots;
+it's a set of tripwires that will fire the moment behavior changes.
+
+### How it was verified (so you can trust the findings)
+
+- **An independent oracle.** The expected numbers are pure-Go transcriptions of the Cboe manual / FINRA 4210 formulas (the `o*` helpers), anchored by the ~25 printed-manual fixtures. Builders were *forbidden* from copying engine output into expectations; confirmed divergences are pinned as `oracleDisagrees` cases, not quietly adapted to whatever the engine said.
+- **A mutation campaign.** 220 single-site rulebook mutants; the 9 real escapes from the first sweep were closed and re-verified, leaving 7 provably-equivalent mutants. A corpus that can't kill mutants isn't measuring anything — this one does.
+- **Properties, not just examples.** Leg-order permutation bit-identity, scaling linearity to 1e-12, magnitude extremes, boundary epsilons.
+
+<Callout kind="warn">
+
+The trap this section exists to break: "the tests are green, so the engine is correct." The
+corpus is green *and* carries six confirmed under-margining classes — because green was made to
+mean "behaves as currently specified," and the spec had holes at the edges. Correctness is the
+oracle agreeing, not the suite passing.
+
+</Callout>
+
+### Self-check
+
+<Reveal q="If every finding is already a passing test, what does 'fixing' one look like?">
+
+You change the engine/rules so the position is rejected or correctly priced, then flip the
+pinned case from asserting the wrong number to asserting the sound one (and usually move it from
+an `oracleDisagrees`/KNOWN-DIVERGENCE pin to a normal expectation). The test going from
+green-asserting-wrong to green-asserting-right *is* the done-signal. Corpus run #2 then
+re-validates the whole net so a fix can't silently regress a neighbour.
+
+</Reveal>
+
+<Reveal q="Why does the audit treat under-margining and over-margining so differently?">
+
+They are not symmetric risks. Under-margining means the firm is carrying uncollateralized
+exposure it doesn't know about — a direct path to a loss the broker eats. Over-margining is a
+competitiveness and trust problem (you charge too much, or a methodology cliff surprises a
+customer) but it never leaves the firm under-protected. So the U-class is "fix first," while the
+O-class is "decide the intended behavior, then document it" — some conservatism is correct.
+
+</Reveal>

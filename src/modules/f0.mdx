@@ -1,0 +1,92 @@
+Everything before this section retold decisions that are already locked — the rules, the
+overlay, the SDK boundary, the corpus. This section is the opposite: the decisions that are
+*still open*. Each lesson here takes one speculative epic from
+`docs/speculative-epics/post-sdk-only-surface/` and teaches it as a **live fork** — the
+question, the real options, and the thing you have to settle before any code gets written.
+
+<Callout kind="warn">
+
+These are *direction-setting scratch artifacts*, not graduated GitHub issues. The epic drafts
+say so explicitly: child issues are provisional slices, the sequence is opinionated, and the
+whole set assumes [#227 (SDK-only surface)](#m9) already landed. Treat each fork as a framed
+question to reason about — not a plan to execute as written.
+
+</Callout>
+
+### The premise: the SDK is the product
+
+The forward roadmap starts from one already-made decision (the `go-sdk-facade` epic, #227):
+`pkg/limen` and `pkg/limenmongo` are the only product surfaces. `cmd/api`, `cmd/recon`,
+`cmd/replay`, and the deploy stack are gone — the integrating *host* now owns HTTP, jobs,
+deployment, and vendor reconciliation (per the [recon-oracle-spec](#m9)). Every fork below is
+a consequence of that: once the API safety rails are removed, the library boundary has to do
+the work the HTTP layer used to.
+
+### The opinionated sequence
+
+The order is not arbitrary — it hardens the boundary first, then expands policy and product
+breadth on top of it. Read them roughly in this order:
+
+| # | Fork | The decision in one line |
+|---|------|--------------------------|
+| 1 | [Host snapshot conformance](#f1) | Make the SDK input contract hard to misuse once the rails are gone |
+| 2 | [Reference data & policy evidence](#f2) | Prove which host-supplied facts matter and how missing data should behave |
+| 3 | [Evaluate-layer house composition](#f3) | Let hosts compose baseline + house rulebooks deterministically |
+| 4 | [House policy authoring & validation](#f4) | Give policy authors a real validation loop for overlay YAML |
+| 5 | [Universal spread rule](#f5) | Cross-position pair-up so portfolio Reg T stops needing pre-grouped positions |
+| 6 | [Optimizer node-budget rework](#f6) | Make decompose latency predictable for SDK callers |
+| 7 | [Multi-regime margin router](#f7) | One account-result contract over baseline, overlay, and future risk engines |
+| 8 | [Trace schema v2](#f8) | Harden the persisted explain contract before more regimes arrive |
+| 9 | [Rich overlay dimensions](#f9) | Liquidity / volatility / HTB-style policy dimensions in the house layer |
+| 10 | [Risk-shock engine](#f10) | The first non-Reg-T risk regime, on top of the router |
+
+<Callout kind="tip">
+
+The dependency spine: **boundary (1–4) → product breadth (5–6) → new regimes (7–10)**. The
+router (7) is the hinge — risk-based margin (10) only makes sense once there's a contract for
+more than one regime to sit behind. That is the same insight from [the platform map](#m11):
+TIMS slots *under* the overlay, not in place of the engine.
+
+</Callout>
+
+### How each fork lesson is built
+
+Every lesson in this section has the same spine, so you can read a fork and act on it:
+
+- **The fork** — the open question, stated as a question, with where it sits in the sequence.
+- **Where the code stands today** — the concrete packages and files you'd touch, from the epic's *Current Codebase State*.
+- **The options** — two or three genuine directions with their tradeoffs; the one the draft leans toward is marked.
+- **What you must settle first** — the *Open Questions*. These are the real blockers: decide them before writing code, not during.
+- **Precedents & where it plugs in** — which locked decisions ([m8](#m8)/[m9](#m9)) constrain it, and which built systems it extends.
+- **How to decide it** — the [playbook](#m13) run against this specific fork: problem type, primary new risk, and the oracle you'd need.
+
+<Callout>
+
+If you only take one habit from this section: when a new fork appears, **find its open
+questions first**. A decision retold (the rest of the handbook) is closed because someone
+answered those. A decision still open is just a list of unanswered questions wearing an
+epic title.
+
+</Callout>
+
+### Self-check
+
+<Reveal q="Why are these kept separate from docs/epics/ and from the locked ADRs?">
+
+Because they are different epistemic objects. The ADRs in [m8](#m8)/[m9](#m9) are *settled* —
+they record a fork that was resolved and why. `docs/epics/` holds *active, graduated* work.
+These speculative drafts are *unresolved* — opinionated direction with open questions still
+attached. Teaching them as the same thing would hide exactly the information you need: which
+questions are still yours to answer.
+
+</Reveal>
+
+<Reveal q="Which fork would you not start first, and why?">
+
+The risk-shock engine ([f10](#f10)) — it's the biggest prize but depends on the router ([f7](#f7))
+existing and on a richer host snapshot ([f1](#f1), [f2](#f2)). Starting it first means deciding
+the regime-routing contract implicitly, in the worst possible place. The sequence exists so the
+boundary work de-risks the regime work; jumping the line re-introduces the risk the order was
+designed to remove.
+
+</Reveal>

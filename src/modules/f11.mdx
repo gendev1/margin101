@@ -1,0 +1,125 @@
+This is the lesson that exists to answer one question: **given everything in this handbook,
+what is the shortest sound path to an end-to-end demo?** The demo you want is
+[Plane 4 — real-time & pre-trade](#m18) plus [Plane 5 — account state & lifecycle](#m17)
+standing on the limen engine: a customer makes a hypothetical trade, sees the projected
+requirement and remaining buying power, and a margin call fires and cures through a real ledger.
+Everything before this section is input; this is where it sequences.
+
+### The one structural fact that orders everything
+
+[Pre-trade what-if](#m18) is `evaluate(current + hypothetical fill) − evaluate(current)`,
+compared against **buying power**. Buying power comes from the SMA ledger — which is
+[Plane 5](#m17). So the headline of Plane 4 *consumes* Plane 5. You cannot demo the pre-trade
+number without the ledger it's measured against.
+
+And both planes only show trustworthy numbers if the engine underneath them is sound — which is
+exactly what [the corpus audit](#c0) says is not yet true at the edges. So the order is forced:
+**soundness → host-input contract → demo-grade calc → the stateful ledger → the real-time
+layer.** Not preference — dependency.
+
+<Callout kind="warn">
+
+The tempting wrong order is to build the shiny part first (Plane 4 pre-trade) because it's the
+demo's hero moment. But pre-trade with an unsound number ([under-margining](#c1)) and no ledger
+to compare against is a demo that lies twice. The hero moment is the *last* step for a reason.
+
+</Callout>
+
+### The critical path
+
+<Path>
+  <Step n="1" title="Corpus remediation — make the numbers sound" gate>
+
+  The demo shows numbers everywhere, so [the under-margining classes](#c1) must close first. The ones that bite a realistic book: **U4** (optimizer prices a not-permitted family at $0) and **U6** (leverage gate missing on stock-hedge combos) hit almost any account; **U3** (mixed-multiplier hedges) hits real collars; **U1/U2** hit any calendar. This is the [remediation epic](#c2) — and it is a hard gate because a confidently-wrong small number is worse than no demo.
+
+  </Step>
+  <Step n="2" title="Host-input contract — f1 + f2" gate>
+
+  The demo *is* a host. After #227 removed the API rails, the [snapshot it builds](#f1) must be hard to misuse, and [missing-data behavior](#f2) must be decided — real-time means partial, late, and stale facts are normal, not exceptional. These two are the foundation both planes stand on; skipping them means the demo's edge cases are undefined behavior.
+
+  </Step>
+  <Step n="3" title="Demo-grade calc — f5 + f6">
+
+  Two forks make the calc fit for a live, raw-book demo: [universal spread pair-up](#f5) so portfolio Reg-T works on a real account instead of pre-grouped positions, and [the optimizer node-budget](#f6) so a deep position can't hang the latency-sensitive pre-trade call (issue #188). Note the back-link: corpus **O4/T6** gate f6, and **U1/U2** live in the catch-all f5 builds on — step 1 is their prerequisite too.
+
+  </Step>
+  <Step n="4" title="Plane 5 — the stateful ledger (host-side)">
+
+  Build the **SMA / buying-power ledger** on top of limen's CashCall ([aggregation](#m14) → [SMA](#m17)), then the [margin-call lifecycle](#m21) state machine on top of the ledger. This is a **new discipline** — a day-over-day stateful ledger, not a pure function — so its oracle is event-sequence invariants and snapshot replays, not a manual page. limen produces the requirement *events*; this layer remembers them.
+
+  </Step>
+  <Step n="5" title="Plane 4 — the real-time layer (host-side)">
+
+  Now the hero moment is cheap: [pre-trade what-if](#m18) is two engine evals differenced and compared against the step-4 ledger; [intraday streaming](#m19) re-margins on ticks with warning bands. The engine is already fast enough (~120µs/eval) — this step is plumbing and state, which is why it's last, not first.
+
+  </Step>
+  <Step n="6" title="Make it explainable — f8 (optional for v1)">
+
+  If the demo leans on "explain every number" (limen's real differentiator), [harden the trace schema](#f8) before more regimes and richer policy widen it. Optional for a first cut, but cheap insurance if the demo's pitch is auditability.
+
+  </Step>
+</Path>
+
+### What to defer — and why it's safe to
+
+The instinct under complexity is that everything is required. It isn't. For a **Reg-T end-to-end
+demo**, four forks are explicitly off the path:
+
+| Deferred | Why it's not on the demo path |
+|----------|-------------------------------|
+| [f3 — evaluate-layer composition](#f3) | A policy-authoring convenience; the demo can ship one compiled rulebook. |
+| [f7 — multi-regime router](#f7) | The router only earns its keep once there's a *second* regime. A Reg-T demo has one. |
+| [f9 — rich overlay dimensions](#f9) | Liquidity/vol/HTB policy is breadth on the house layer; the demo's overlay can stay thin. |
+| [f10 — risk-shock engine](#f10) | A different epic entirely (risk-based margin), and it depends on f7 + f2 + f1 — far past the demo. |
+
+<Callout kind="tip">
+
+The discipline this table teaches: **scope is a dependency question, not an ambition question.**
+f7 and f10 feel important because they're the exciting future — but they sit on the *other* side
+of the demo. Building them first is the same mistake as building Plane 4 before Plane 5, one
+level up. Use [the playbook](#m13) to classify each fork; defer everything not on the critical
+path to the *named* goal.
+
+</Callout>
+
+### The two discipline shifts ahead
+
+[The platform map](#m11) flagged this and the path makes it concrete: you are about to leave the
+comfort of pure functions. **Plane 5 is stateful accounting** — a day-over-day ledger with
+memory, where the oracle is invariants over event sequences. (The *other* shift, the numerical
+model, only arrives with [the risk-shock engine](#f10) — safely deferred.) Plane 4 is still pure
+calc plus host state, so it inherits the engine's determinism. Plan for the Plane-5 shift
+specifically: it's the first thing you'll build that yesterday's input changes.
+
+### Self-check
+
+<Reveal q="Why must Plane 5 come before Plane 4, when Plane 4 is the demo's hero?">
+
+Because pre-trade's headline number — *remaining buying power after this fill* — is read out of
+the SMA ledger, which is Plane 5. Plane 4 computes the requirement *delta* (two engine evals); it
+has nothing to compare that delta against until the buying-power ledger exists. Build Plane 4
+first and you can show a requirement but not the "can I afford this trade?" answer that makes it a
+demo. The dependency runs Plane 5 → Plane 4.
+
+</Reveal>
+
+<Reveal q="Which corpus fix is the single highest-leverage prerequisite for the demo, and why?">
+
+**U4** (the optimizer reporting a `permitted: false` family as a $0 fit). Any realistic
+account runs through decomposition, and a $0 that should have been a rejection is the exact
+silent-wrong-number the whole system is built to prevent — surfaced right in the pre-trade path
+the demo centers on. U6 is a close second (a leveraged-ETF hedge priced at flat Reg-T). Both are
+"confidently wrong and small," which is the only error class that can make a demo actively
+dangerous rather than merely incomplete.
+
+</Reveal>
+
+<Reveal q="A stakeholder asks to add the risk-shock engine (f10) to the demo. What do you say?">
+
+That it's on the wrong side of the goal. f10 depends on the multi-regime router (f7), the
+evidence model (f2), and a richer host snapshot (f1) — and it's a numerical-model discipline with
+its own oracle problem. It's the biggest prize on [the roadmap](#f0), but adding it to *this*
+demo re-introduces exactly the complexity this path was sequenced to defer. Ship the Reg-T
+end-to-end demo first; f10 is the headline of the demo *after* it.
+
+</Reveal>

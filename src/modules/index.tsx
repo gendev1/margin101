@@ -27,6 +27,21 @@ import M22 from './m22.mdx'
 import M23 from './m23.mdx'
 import M24 from './m24.mdx'
 import M25 from './m25.mdx'
+import F0 from './f0.mdx'
+import F1 from './f1.mdx'
+import F2 from './f2.mdx'
+import F3 from './f3.mdx'
+import F4 from './f4.mdx'
+import F5 from './f5.mdx'
+import F6 from './f6.mdx'
+import F7 from './f7.mdx'
+import F8 from './f8.mdx'
+import F9 from './f9.mdx'
+import F10 from './f10.mdx'
+import F11 from './f11.mdx'
+import C0 from './c0.mdx'
+import C1 from './c1.mdx'
+import C2 from './c2.mdx'
 
 // Section order IS the learning path: position math → account machine →
 // account state → real-time → the other methodology → then the decision
@@ -76,6 +91,16 @@ export const SECTIONS: SectionDef[] = [
     id: 'map',
     label: 'Platform Map',
     blurb: 'Where every system sits, what is built, and what comes next.',
+  },
+  {
+    id: 'frontier',
+    label: 'Current Frontier',
+    blurb: 'What the 1000-case corpus audit actually found: the under-margining, conservatism, and taxonomy debt the engine still carries — and the remediation epic that gates everything after it.',
+  },
+  {
+    id: 'future',
+    label: 'Future Forks',
+    blurb: 'The decisions not yet made: each speculative epic taught as a live fork — the question, the real options, and what you must settle before any code.',
   },
 ]
 
@@ -420,6 +445,115 @@ export const MODULES: ModuleDef[] = [
       ],
       planes: ['Plane 1 — Calculation kernel', 'Plane 4 — Real-time & pre-trade', 'Plane 5 — Account state & lifecycle', 'Plane 6 — Integration & ops'],
     },
+  },
+
+  /* ---------------- Current Frontier ---------------- */
+  {
+    id: 'c0',
+    title: 'The corpus audit',
+    subtitle: 'What 2,324 oracle-derived cases and a 220-mutant campaign found: the arithmetic is sound, the edges of rule applicability leak',
+    component: C0,
+    section: 'frontier',
+  },
+  {
+    id: 'c1',
+    title: 'The under-margining classes',
+    subtitle: 'U1–U6: the six confirmed ways an unsound or under-hedged position gets a confidently-small number instead of a rejection — each pinned by a test',
+    component: C1,
+    section: 'frontier',
+  },
+  {
+    id: 'c2',
+    title: 'Conservatism, taxonomy & the remediation epic',
+    subtitle: 'The over-margining cliffs (O), the classification inconsistencies (T), dead guards and scope gaps — and the ungraduated epic that fixes them and gates the forks',
+    component: C2,
+    section: 'frontier',
+  },
+
+  /* ---------------- Future Forks ---------------- */
+  {
+    id: 'f0',
+    title: 'The forward roadmap',
+    subtitle: 'How to read the ten speculative epics — the post-SDK-only sequence, the dependency chain, and how to turn a draft epic into a decision',
+    component: F0,
+    section: 'future',
+  },
+  {
+    id: 'f1',
+    title: 'Host snapshot conformance',
+    subtitle: 'Making the SDK input contract hard to misuse once the API safety rails are gone',
+    component: F1,
+    section: 'future',
+  },
+  {
+    id: 'f2',
+    title: 'Reference data & policy evidence',
+    subtitle: 'Proving which host-supplied facts actually matter, and how missing-data behavior should work',
+    component: F2,
+    section: 'future',
+  },
+  {
+    id: 'f3',
+    title: 'Evaluate-layer house composition',
+    subtitle: 'Letting hosts compose a baseline and a house evaluate rulebook deterministically',
+    component: F3,
+    section: 'future',
+  },
+  {
+    id: 'f4',
+    title: 'House policy authoring & validation',
+    subtitle: 'A real validation loop for overlay YAML and overrides, for the people who author policy',
+    component: F4,
+    section: 'future',
+  },
+  {
+    id: 'f5',
+    title: 'Universal spread rule',
+    subtitle: 'Cross-position pair-up so portfolio-level Reg T stops depending on pre-grouped positions — the oldest remaining gap',
+    component: F5,
+    section: 'future',
+  },
+  {
+    id: 'f6',
+    title: 'Optimizer node-budget rework',
+    subtitle: 'Making decompose latency predictable for SDK callers instead of exponential on deep positions',
+    component: F6,
+    section: 'future',
+  },
+  {
+    id: 'f7',
+    title: 'Multi-regime margin router',
+    subtitle: 'Normalizing baseline, overlay, and future risk engines behind one account result contract',
+    component: F7,
+    section: 'future',
+  },
+  {
+    id: 'f8',
+    title: 'Trace schema v2',
+    subtitle: 'Hardening the persisted explain contract before more regimes and richer policy inputs arrive',
+    component: F8,
+    section: 'future',
+  },
+  {
+    id: 'f9',
+    title: 'Rich overlay dimensions',
+    subtitle: 'Extending the house layer with liquidity, volatility, and HTB-style policy dimensions',
+    component: F9,
+    section: 'future',
+  },
+  {
+    id: 'f10',
+    title: 'Risk-shock engine',
+    subtitle: 'The first non-Reg-T risk regime, on top of the router and a richer host snapshot',
+    component: F10,
+    section: 'future',
+  },
+  {
+    id: 'f11',
+    title: 'The path to the end-to-end demo',
+    subtitle: 'The capstone: sequencing the corpus fixes, the speculative epics, and the Plane 5 → Plane 4 build into one critical path — what gates what, and what to defer',
+    component: F11,
+    section: 'future',
   },
 ]
 

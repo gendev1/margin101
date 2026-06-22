@@ -1,0 +1,196 @@
+After [the under-margining classes](#c1) — the ones that put real money at risk — these are the
+findings you *decide, then document*. None of them leaves the firm under-protected: they either
+**over**-charge, classify the same defect inconsistently, or guard a door that's already locked.
+That makes them lower-urgency than any U, but not unimportant — they shape what a customer
+*trusts* about a quoted number and what a recon consumer can *bucket* on the other side of the
+API. This lesson works the O and T classes, sweeps the dead guards and scope gaps, and ends on
+the **remediation epic** that fixes them in one coherent motion — plus the single decision the
+epic deliberately leaves open.
+
+### Over-margining & methodology cliffs
+
+Over-margining is a competitiveness problem, never a solvency one. The sharpest examples are
+*methodology cliffs* — places where a small change in shape (one more leg, one tiny strike)
+swings the number by an order of magnitude because two pricing conventions meet at an edge.
+
+<Finding id="O2" kind="over-margin" pin="catch-all aggregate-strike-at-U=0">
+
+Three naked short puts — three legs — fall through the per-put rules into the **catch-all**,
+which prices the aggregate strike at an underlying of 0 and returns **\$28,500**: roughly **10×**
+what per-put pricing would charge. The cliff is at *leg-count 3*. Its mirror is just as
+instructive: a put ratio with a tiny far strike prices at **long-premium-only** (`mpl=0`),
+landing ~10× *below* its short leg's standalone naked requirement. So the catch-all isn't simply
+"conservative" — it lands far on *either* side of the per-leg convention depending on the shape.
+The lesson isn't a wrong arithmetic; it's that the fall-through territory has no per-leg
+discipline, which is exactly why [the universal spread rule](#f5) wants to own it.
+
+</Finding>
+
+<Finding id="O4" kind="over-margin" pin="TestCorpusDecompose_ResidualShortStockProceeds">
+
+When a short-stock position is *partially* hedged, the decomposition splits into a covered slice
+and a residual slice. The covered slices scale `short_sale_proceeds` proportionally — but the
+**residual short-stock slice keeps the full, unscaled proceeds**. So the consumed portion's sale
+proceeds get counted twice in the gross, and the optimizer is biased *away* from partial
+short-stock hedges that are actually beneficial. This one matters more than a pure display cliff:
+it doesn't risk the firm, but it quietly distorts the optimizer's search, which is why the epic
+pulls it forward alongside the U-class fixes.
+
+</Finding>
+
+Two more round out the class. **O1** — `mpl`'s "outlives" guard compares the max short expiry
+against the *minimum* long expiry per type, which is coarser than checking coverage at each
+cutoff: a calendar that's genuinely covered at every cutoff still hard-errors "outlives" because
+one harmless early-expiring long put drags the minimum down (`fc/buried/B2`). It over-rejects but
+never under-charges all-dated legs. **O3** — stacked overlay `max`/`floor` rules *sum* their
+shortfalls, where D3's composition description implies a *collapse-to-max*; order-independence
+itself still holds, so it's a magnitude question, not a soundness one.
+
+### Taxonomy debt
+
+These don't change any number — they change *which path produces it*, so the same underlying
+defect lands in different buckets for a downstream recon consumer. That's pure friction, but
+friction that erodes trust in the classifier.
+
+<Finding id="T1" kind="taxonomy" pin="short-outlives-long call vs put">
+
+The exact same defect — a short leg that outlives its long — surfaces as a **silent `NoRule`**
+on the call side (because `is_limited_risk` fails first) but a **hard CEL error** ("outlives") on
+the put side. A recon consumer that buckets `NO_RULE` separately from `ERROR` now splits one
+logical defect into two streams. The fix is structural, not cosmetic: when both guards reject
+mixed-type-with-short *coherently*, the asymmetry collapses on its own — which is why the epic
+treats T1 as a *consequence* of U1 rather than its own work item.
+
+</Finding>
+
+<Finding id="T3" kind="taxonomy" pin="deliverable-equality three ways">
+
+Deliverable-equality is checked **three different ways**, and they disagree at the edges.
+`vertical_spread` uses exact CEL `==` on `qty*mult`, so float noise rejects a *truly equal*
+1.1×100 vs 110×1 pair. `same_contract_size` uses a 1e-9 relative tolerance. The strangle rule
+compares the **raw `mult` field**, so a 1×100 put vs a 10×10 call is rejected despite identical
+deliverables. Three notions of "the same size," three different verdicts — the canonical example
+of taxonomy debt born from copy-paste convention drift.
+
+</Finding>
+
+<Finding id="T6" kind="taxonomy" pin="TestCorpusDecompose_CashBoxFormulaHole">
+
+A cash-account bucket whose legs *merely could* form a box hard-errors the **entire**
+decomposition. `long_box_spread` has no `cash:` block; `EvaluateRule` treats the missing formula
+as a hard error; and `decompose` *propagates* it instead of skipping the candidate — even when a
+valid residual completion exists. So a recoverable portfolio is sunk by an unreachable formula
+hole. This is the taxonomy finding the epic fixes directly (as **DC2**), because it's also a
+correctness trap for the optimizer, not just a recon nuisance.
+
+</Finding>
+
+The remaining T findings are quieter and summarized here:
+
+| Finding | Defect | Effect |
+|---------|--------|--------|
+| **T2** | Long box in a cash account returns a plain eval error ("has no `cash.initial` formula") | neither `NoRule` nor a `permitted: false` verdict — a third, unbucketable shape |
+| **T4** | "Fail loud on `class` typo" only holds where a formula reads rates | an unknown `class` on a butterfly evaluates fine (combos never call `rate()`); the same typo on a naked put hard-errors |
+| **T5** | Account layer keeps a per-evaluation `NoRule` flag but drops the error object | no snapshot-level bucket; `classifyEvaluation` matches on message substrings where the recon spec mandates `errors.Is` |
+| **T7** (DC3) | Equal-cost tie groupings depend on input leg order (LegID string tiebreak) | by-design per the optimizer contract; recorded only because production IDs are positional |
+
+### Dead guards & scope gaps
+
+Dead guards are defense-in-depth that can never fire — keep or delete, but do it deliberately.
+
+<Finding id="DG" kind="dead-guard" pin="three unreachable guards">
+
+`short_strangle_or_straddle`'s `same_across_slots: underlying` never trips because a CEL
+constraint screens it first; `short_index_call_long_etf`'s `positive_fields: le.price` is
+preempted by the coverage constraint; and `Mult: 0` can never reach `validateLeg` because
+`preparePosition` defaults it to 100 first. Each is harmless today and a liability the day
+someone reorders the pipeline trusting it as a real check.
+
+</Finding>
+
+The **scope gaps** are now pinned explicitly, which turns "unknown" into "known-unsupported":
+there is no standalone ETF / ETN / convertible / warrant rule (bare legs fall to `NoRule`);
+`short_call_long_convertible` is a draft with *no* hedge-integrity requirements (it silently
+matches); D2's proceeds asymmetry (standalone short stock credits sale proceeds, combos don't);
+boxes are double-matched by the catch-all; and asymmetric-qty strangles price via total-USD
+dominance, undocumented. None are bugs against a spec — they're the spec's frontier, and they
+feed [the forward roadmap](#f0) directly.
+
+### The remediation epic
+
+One epic closes the dangerous and the distorting findings together. It fixes the under-margining
+classes **U1–U6** plus **O4/DC1** and **T6/DC2**:
+
+- **U2** — global expiration-format validation.
+- **U1** — coherent dated/undated soundness that rejects mixed-same-type-with-short in *both*
+  guards (this is what collapses the **T1** asymmetry as a side effect).
+- **U6** — D1-style `class=='equity' && lev==1.0` gates on the seven stock-hedge combo rules.
+- **U4 / T6 / DC2** — the optimizer honors `Permitted` and *skips* a missing-formula candidate
+  instead of hard-failing the whole decomposition.
+- **O4** — residual short-stock slices scale `short_sale_proceeds` proportionally.
+- **U5** — overlay `add` becomes a raise-only guard.
+
+Each fix **flips its pinned case** from green-asserting-wrong to green-asserting-right — the
+per-finding done-signal — and then **"corpus run #2"** re-validates the whole net so no fix
+silently regresses a neighbour.
+
+<Callout kind="warn">
+
+The epic is a **gate**, not just a cleanup. [The universal spread rule](#f5) builds on exactly
+the catch-all territory where U1/U2 live, and [the optimizer node-budget rework](#f6) *assumes*
+the decomposition invariants O4 and T6 already hold. Shipping either speculative item before the
+epic lands would build on sand. The sequence flows through [the path to the demo](#f11).
+
+</Callout>
+
+### The one decision still open
+
+The epic ships everything above — except one semantics call it deliberately defers.
+
+<Fork
+  order="—"
+  status="open inside the remediation epic"
+  q="When an option covers only a fraction of the shares, how should maintenance price a mixed-multiplier hedge?"
+/>
+
+This is **U3**. It isn't a bug to fix; it's a design choice the rest of the implementation
+follows. The question is what to do when the hedge covers part of a stock position but not all of
+it.
+
+<OpenQuestions>
+
+- **Decompose and price each at its own rate.** Charge the covered portion at the hedged rate
+  and the remainder at the plain rate — which matches the optimizer's existing `min(mult)`
+  pairing, so the engine already *leans* this way.
+- **Reject as mispaired.** Treat a mixed-multiplier hedge as malformed and refuse to net it at
+  all, pushing the whole position to the plain rate.
+
+</OpenQuestions>
+
+The tension is that [the optimizer](#m16) already implies the first answer through its `min(mult)`
+pairing, while a strict reading of [stock hedges](#m4) argues the second. "Implementation follows
+the decision" — so this is settled *before* the related code is written, not discovered after.
+
+### Self-check
+
+<Reveal q="Why does the epic fix O4 and T6 but only some of the O/T findings — not all of them?">
+
+Because not every O/T finding is *just* cosmetic. O4 (DC1) distorts the optimizer's search by
+double-counting consumed proceeds, and T6 (DC2) sinks a recoverable decomposition over an
+unreachable formula hole — both are correctness traps for the decomposition invariants that
+[the node-budget rework](#f6) depends on. The rest (O1, O3, T2–T5, T7) are over-conservatism or
+recon-bucketing noise: real, worth documenting, but they don't gate anything downstream, so they
+stay pinned and get decided on their own timeline.
+
+</Reveal>
+
+<Reveal q="T1 is a taxonomy finding, so why does fixing U1 fix it for free?">
+
+T1 is the *symptom* and U1 is the *cause*. The call side and put side reject "short outlives
+long" through different code paths — one fails `is_limited_risk` (silent `NoRule`), the other
+hits a CEL "outlives" error. U1 replaces both with one coherent soundness check that rejects
+mixed-same-type-with-short the same way in both guards. Once the rejection is unified, there's no
+asymmetry left to bucket — so T1 collapses as a *consequence* of the U1 fix rather than needing
+its own work item.
+
+</Reveal>

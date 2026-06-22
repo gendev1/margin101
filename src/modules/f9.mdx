@@ -1,0 +1,112 @@
+<Fork
+  order="9 / 10"
+  status="speculative · ROADMAP backlog #18"
+  q="The house overlay should price richer firm-policy dimensions — volatility buckets, market-cap/liquidity constraints, HTB-style penalties, exposure-fee add-ons — with auditable attribution. How do you wire those in without turning the overlay into an opaque bag of ad-hoc conditions?"
+/>
+
+This is the policy-depth follow-on once the SDK boundary is stable. The interesting thing
+about it is how *close* the repo already is: `pkg/limen/types.go` already exposes `ADV20`,
+`MedianVolume20`, `MarketCap`, `Volatility30D`, `HardToBorrow`, and `BorrowRate`, and
+`internal/overlay` already has the rule engine, the attribution model, and the policy-context
+surface. What's missing isn't the *concept* of richer overlays — it's the disciplined plumbing,
+the test corpus, and the policy patterns needed to consume those facts without the house layer
+degenerating into hidden logic.
+
+In other words: this fork is the engine-side home for the add-on dimensions you already met as
+product surface. Concentration, liquidity, HTB, event-risk — those add-ons land *here*, as
+overlay rules grounded in the host-supplied reference-data contract.
+
+### Where the code stands today
+
+- `internal/overlay/evaluate.go` and its tests already support low-price floors, concentration, blocks, and existing override application.
+- `internal/overlay/facts.go` computes some portfolio facts and explicitly leaves combo-position subtleties for later.
+- `pkg/limen/types.go` carries more reference-data fields (`ADV20`, `MarketCap`, `Volatility30D`, `HardToBorrow`, `BorrowRate`, …) than any shipped policy currently consumes.
+- `docs/consuming.md` and the public types already frame policy context as *host-owned* — the data exists in the contract; the rules just don't reach for it yet.
+
+So the facts are in the contract and the rule engine exists. The gap is making those fields
+first-class overlay facts, with canonical rule families and fixtures that keep the house layer
+readable.
+
+### Scope, and the line around it
+
+In scope: expose the additional reference-data dimensions cleanly, add canonical policy patterns
+for volatility / liquidity / market-cap / HTB / exposure-fee, preserve component-level
+attribution so every add-on is explainable, and back it with fixtures. Out of scope: a separate
+risk-shock regime ([f10](#f10)), any pricing-model or vol-surface work, and external data
+ingestion — the host still supplies the facts.
+
+### The options
+
+<Options>
+  <Option name="A richer policy-context vocabulary" lean>
+
+  Promote the existing `SecurityFacts` fields to first-class *overlay facts* via helper projections, and add canonical rule families (volatility bucket, low-liquidity, low-market-cap, HTB/borrow-rate, exposure-fee) that read those projections. The fields already exist in the contract; this is mostly disciplined plumbing plus a fixture corpus. Lowest new surface, keeps attribution unchanged, and keeps rulebooks reviewable as *policy*.
+
+  </Option>
+  <Option name="Add each dimension as a new override type">
+
+  Model volatility, liquidity, HTB, etc. each as a distinct override kind alongside the existing low-price / concentration overrides. Explicit and self-documenting per dimension — but it multiplies override types and tempts authors toward giant per-dimension YAML, which is exactly the "opaque bag of conditions" the epic warns against.
+
+  </Option>
+  <Option name="Pluggable policy functions">
+
+  Let policy authors register helper functions (Go-side) for dimensions that don't read cleanly as pure YAML — HTB penalties and exposure-fee math being the obvious candidates. Most expressive, but it moves policy out of declarative rulebooks and into code, which weakens the "reviewed as policy, not hidden logic" gate.
+
+  </Option>
+</Options>
+
+The draft leans on the richer-vocabulary direction: the fields are already in `SecurityFacts`,
+the rule engine already attributes components, so the cheapest *and* most auditable move is to
+project the facts cleanly and ship canonical rule families — the same restraint the
+[house overlay](#m15) used by keeping itself raise-only rather than inventing new mechanics.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Which of these dimensions stay **overlay policy**, and which should eventually move into a separate risk regime once the router ([f7](#f7)) exists? Volatility especially blurs the line.
+- Should HTB and exposure-fee behavior live in **pure YAML policy**, or do they need new helper functions to stay readable? This is the option boundary above, restated as the real blocker.
+
+</OpenQuestions>
+
+The second question is the deciding one. If HTB and exposure-fee read cleanly as declarative
+rules, you stay in the richer-vocabulary lane and the policy-readability gate holds. If they
+*don't*, you've opened the pluggable-functions door — and every helper added in code is one more
+thing a reviewer can't audit as policy. Settle that before writing the first new rule family.
+
+### Precedents & where it plugs in
+
+- This is the engine-side home for the [add-ons in practice](#m25) — concentration, liquidity, HTB, event-risk are taught there as product behavior; here they become overlay rules.
+- It extends [house overlay & overrides](#m15) directly: same rule engine, same attribution model, same raise-only discipline — just reaching for more facts.
+- Precedent ADR: `layer3-house-overlay` — the decision that established the overlay as a raise-only, component-attributed layer over the baseline. Every new dimension must honor that invariant.
+- Planes: **6 — Integration & ops**, **3 — Data plane**, **5 — Account state & lifecycle**.
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** policy / data-plane — make host-supplied facts available to rules cleanly, then encode firm policy on top. Not a search or kernel problem.
+- **Primary new risk:** overlay dimensions that need data the host can't reliably supply (a borrow rate or `Volatility30D` that's stale, partial, or absent), *and* the raise-only invariant from `layer3-house-overlay` silently breaking as new add-ons compose. An overlay that *lowers* a requirement is a correctness bug, not a policy choice.
+- **The oracle you'd need:** fixture-driven overlay tests for low-liquidity, low-market-cap, high-volatility, HTB/borrow-rate, and exposure-fee adjustments, each with expected component outputs; missing-data tests built on the evidence matrix from the reference-data fork ([f2](#f2)); trace-proof tests showing the applied dimension is obvious in attribution; and a policy-readability gate so example rulebooks stay comprehensible.
+
+### Self-check
+
+<Reveal q="Why does 'the fields already exist in SecurityFacts' not mean this fork is nearly done?">
+
+Because exposing data and *governing its use* are different problems. The fields being in the
+contract removes the easy work (plumbing) and leaves the hard work: canonical rule families that
+read cleanly, attribution that survives composing several add-ons, missing-data behavior tied to
+evidence, and a readability gate that stops the overlay from rotting into ad-hoc conditions. The
+epic is explicit — the gap is discipline, corpus, and patterns, not the concept.
+
+</Reveal>
+
+<Reveal q="What's the invariant a new HTB or exposure-fee rule must never violate?">
+
+Raise-only. The `layer3-house-overlay` ADR established the overlay as a layer that can only
+*increase* the requirement over the baseline. A new add-on that, through interaction with other
+dimensions, ends up reducing a margin number isn't a richer policy — it's a correctness
+regression. That invariant is why the oracle needs composition tests, not just single-dimension
+fixtures.
+
+</Reveal>

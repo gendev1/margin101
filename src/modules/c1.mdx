@@ -1,0 +1,161 @@
+These are the six "fix first" classes from [the corpus audit](#c0) — each one an *unsound*
+position that the engine hands back a confidently-small number for instead of rejecting. None of
+them is an arithmetic bug. The formula grids are sound; the oracle agreed everywhere it could.
+What leaks is the layer *before* the arithmetic: the predicates that decide whether a rule
+applies at all. Every U below lives at an **edge of rule applicability** — a guard that reads as
+true when it should read as false, a path that skips a check another path enforces, a contract
+the optimizer was supposed to honor and didn't. That is the most dangerous failure shape a margin
+system has, so this is where the corpus concentrated its fire.
+
+<Finding id="U1" kind="under-margin" pin="fc/buried/*">
+
+**The hole.** Mixed dated/undated expirations defeat *both* soundness guards at once.
+`is_limited_risk` treats an empty expiration as "covers every cutoff," so it believes a structure
+is bounded when one leg has no end date. Independently, `mpl`'s outlives guard *skips* empty
+expirations entirely when checking whether a long leg outlives the short it protects. So a
+structure with one dated leg and one undated leg slips past the limited-risk check on one side and
+the max-potential-loss check on the other.
+
+**The evidence.** Three pinned slips under `fc/buried/*`:
+
+- a dated short call + undated long call prices at **$900**;
+- an undated short call + dated long call prices at **$650** — it goes *naked* the moment the dated long expires;
+- a dated far short put + undated long put prices at **$750** against roughly **$10,000** of true exposure.
+
+All-dated structures of the same shape are safe — the bug is specifically the *mix*.
+
+**The fix.** Reject mixed dated/undated same-type structures that contain a short leg. If a short
+leg's protection has no fixed expiration to reason about, the structure isn't bounded and
+shouldn't match a limited-risk formula.
+
+</Finding>
+
+<Finding id="U2" kind="under-margin" pin="tr/expiry/unpadded/*">
+
+**The hole.** Unpadded dates flip `is_limited_risk` verdicts. The cutoff comparisons are
+*lexicographic* string compares, not date compares — so `"2026-6-19"` sorts **after**
+`"2026-12-18"` because `"6"` \> `"1"` character-by-character. A chronologically-*unbounded*
+reverse calendar therefore matches the catch-all at `mpl=0` (the long-premium-only requirement for
+unbounded risk), and a perfectly legal calendar gets *rejected*. The combo path has no
+date-format gate at all: `vertical_spread`'s `expiration_order` validates the format, but
+`is_limited_risk` never does.
+
+**The evidence.** Pinned under `tr/expiry/unpadded/*`: with one unpadded month the ordering
+inverts, so the engine's "later" leg is actually the earlier one. An unbounded structure passes
+as bounded, and a bounded one fails — a single missing zero, in either direction.
+
+**The fix.** Validate expiration format at `validateLeg`, so a malformed date is rejected before
+any comparison runs — closing the gap the combo path leaves open. One check, applied once,
+upstream of every cutoff compare.
+
+</Finding>
+
+<Finding id="U3" kind="under-margin" pin="multipliers.yaml oracle_disagrees">
+
+**The hole.** Hedge maintenance prices *all* shares at the hedged rate. The stock-hedge rules'
+`min_fields` floor only requires `shares >= qty*mult` — it checks there are *enough* shares, not
+how many the option actually covers. The maintenance formulas then charge **every** share at the
+hedged rate even when the option covers only a fraction of the position.
+
+**The evidence.** Six pinned divergences in `multipliers.yaml` (marked `oracle_disagrees`). The
+clearest: a covered call "covered" by *one mini option* — 10 deliverables — written against 100
+shares charges **$1,250**, where the sound decomposed number (10 shares covered + 90 priced plain)
+is **$1,925**. The mini-collar case is pinned at `fc/mixed_mult/mini_collar`. Notably the
+optimizer's `dualOptionStockConsumption` already pairs shares by `min(mult)` correctly — so a
+direct `Evaluate` call that bypasses the optimizer is what gets it wrong.
+
+**The fix.** Cover only the deliverable count at the hedged rate and price the residual shares
+plainly — i.e. make direct `Evaluate` decompose the way the optimizer already does, instead of
+applying the hedged rate to the whole share lot.
+
+</Finding>
+
+<Finding id="U4" kind="under-margin" pin="TestCorpusOptimizer_CashAccountPermittedFalseSubWins">
+
+**The hole.** The optimizer ignores `Result.Permitted`. `EvaluateRule` reports a
+`permitted: false` family as a **$0 fit** rather than as "not allowed here." A cost-minimizing
+search reads $0 as the cheapest possible answer, so it *selects* the not-permitted candidate.
+
+**The evidence.** Pinned by `TestCorpusOptimizer_CashAccountPermittedFalseSubWins`: in a cash
+account the optimizer picks a strangle that is *not permitted* in that account type, scores it at
+**$0** total, and `optdecomp` then stamps the result `Permitted: true`. A position that should
+have been refused outright comes back free and allowed.
+
+**The fix.** Treat `permitted: false` as disqualifying in the optimizer — exclude it from the
+candidate set entirely rather than scoring it as a zero-cost fit, so an impermissible family can
+never win the search.
+
+</Finding>
+
+<Finding id="U5" kind="under-margin" pin="overlay_test.go negative-add KNOWN-DIVERGENCE">
+
+**The hole.** Overlay `add` accepts negative formulas. A house rule with a negative `add` formula
+*lowers* the house requirement rather than raising it. The overlay invariant — documented in D6
+([account-house-recon](#m15)) — is that all overlay modes only ever **raise** the requirement; but
+that invariant is unguarded on the rule path.
+
+**The evidence.** Pinned as the negative-add KNOWN-DIVERGENCE in `overlay_test.go`: a house
+overlay configured with a negative `add` produces a *smaller* number than the base house
+requirement — the overlay subtracting from the very floor it exists to lift.
+
+**The fix.** Enforce the raise-only invariant on the rule path: reject (or clamp) a negative
+`add` formula so an overlay can never reduce the requirement below base. Make the documented
+invariant a guarded one.
+
+</Finding>
+
+<Finding id="U6" kind="under-margin" pin="covered_call/spec_gap/*">
+
+**The hole.** Stock-hedge combos skip the equity-only gate. D1's guard —
+`class == 'equity' && lev == 1.0` — exists only on the *single-leg* stock rules. The stock-hedge
+*combo* rules never apply it, so a hedge written against a leveraged product is priced as if it
+were plain equity.
+
+**The evidence.** Pinned under `covered_call/spec_gap/*` and
+`protective_put/spec_gap/lev=2_still_matches`: a covered call on a **3x-leveraged ETF** prices at
+flat Reg-T, exactly the confidently-wrong-number outcome D1 was written to prevent. The
+single-leg path would have caught the leverage; the combo path waves it through.
+
+**The fix.** Apply the same `class == 'equity' && lev == 1.0` gate to the stock-hedge combo rules
+that the single-leg stock rules already carry — one shared guard instead of two divergent paths.
+
+</Finding>
+
+### The pattern
+
+Read the six together and they sort into four neighborhoods, not six unrelated bugs. **U1 and
+U2** both live in the *catch-all* that [the universal spread rule](#f5) builds on — the
+limited-risk predicate and its cutoff comparisons (see [limited risk & the catch-all](#m5)); both
+are a malformed or mixed expiration sneaking past a soundness check. **U3 and U6** are both
+[stock-hedge](#m4) gaps: one prices too many shares at the hedged rate, the other forgets to check
+what it's hedging *is* plain equity. **U4** is an [optimizer](#m16) contract miss — a search that
+mis-reads "not permitted" as "free." **U5** is an [overlay](#m15) invariant that's written down
+but unenforced. Every one is a predicate at the boundary of applicability, and every one is closed
+by the remediation epic in the [next lesson](#c2) — flipping its pinned test from
+asserting-the-wrong-number to asserting-the-sound-one.
+
+### Self-check
+
+<Reveal q="Why is U2 a one-character bug with a huge blast radius?">
+
+The "bug" is a single missing zero in a date — `"2026-6-19"` instead of `"2026-06-19"`. But the
+cutoff comparison is a lexicographic string compare, so that one character reorders the whole
+expiration sequence: `"6"` sorts after `"1"`, making June look *later* than December. From there
+the limited-risk verdict inverts in *both* directions — an unbounded reverse calendar passes as
+bounded (under-margined), and a legal calendar gets wrongly rejected. The blast radius is large
+because the flaw isn't in any one formula; it's in the ordering primitive every cutoff comparison
+depends on, and the combo path has no format gate to catch the malformed input first.
+
+</Reveal>
+
+<Reveal q="U3: why does the optimizer get it right but direct Evaluate get it wrong?">
+
+Because the correct logic already exists — just not on every path. The optimizer's
+`dualOptionStockConsumption` pairs shares to the option by `min(mult)`, so it only covers the
+deliverable count at the hedged rate and prices the rest plainly. A direct `Evaluate` call skips
+the optimizer entirely and goes straight to the maintenance formula, whose `min_fields` floor
+only asserts `shares >= qty*mult` — enough shares exist — and then charges *all* of them at the
+hedged rate. So the divergence is purely about which code path priced the position; the fix is to
+make direct `Evaluate` decompose the way the optimizer already does.
+
+</Reveal>

@@ -1,0 +1,84 @@
+<Fork
+  order="4 / 10"
+  status="speculative"
+  q="What validation loop should house-overlay YAML and override authors get before a host deploys a policy change?"
+/>
+
+Today a policy author edits `rules/house_overlay.example.yaml`, copies it to `rules/house_overlay.yaml`, and hopes. The loader catches syntax and some semantics, but there is no repeatable way to ask *"what does this rulebook actually do to a representative book, and is that what I intended?"* Once limen stops shipping an HTTP control plane (after [#227](#f5)), hosts lose even the illusion that authoring happens "through the service." The engine is the product — and right now its policy layer is technically capable but operationally thin.
+
+This fork makes policy changes **reviewable artifacts** instead of best-effort YAML edits: overlay YAML, targeted overrides, policy-context examples, and expected-attribution fixtures that can be linted and regression-tested before a deploy.
+
+### Where the code stands today
+
+- `rules/house_overlay.example.yaml` demonstrates low-price floors and concentration policy — a good sample, **not** an authoring workflow.
+- `rules/house_rules.notes.md` sketches intended policy dimensions and their separation from baseline rules.
+- `internal/overlay/rulebook.go`, `validate.go`, and related tests enforce compile-time rulebook integrity — syntax and structure, not policy-review ergonomics.
+- `internal/overlay/policy.go` exposes host policy facts such as pending cash and risk profile.
+- `internal/mongostore` and `pkg/limenmongo` resolve overrides, but the repo has **no first-class way** to test a planned override stack against representative snapshots.
+- `pkg/limen/options.go` and `pkg/limen/errors.go` already force callers to be explicit about overlay and override configuration.
+
+So the formulas, the loader, and the override resolution all exist. The missing piece is the loop *around* them: a harness that runs snapshots through a rulebook and asserts the result.
+
+In scope: a policy-validation harness, authoring-time assertions on components / violations / requirement deltas / warnings, lint checks for common mistakes, and a documented example pack. Out of scope: a web UI or hosted policy-management service, non-YAML policy languages, and evaluate-layer composition semantics beyond what this epic consumes.
+
+### The options
+
+<Options>
+  <Option name="Schema-lint only">
+
+  Extend `internal/overlay/validate.go` with static lint checks — unreachable `when` clauses, unused policy facts, duplicate IDs, contradictory override stacks — and stop there. Cheapest, fully static, no fixture corpus to maintain. But it can prove a rulebook is *well-formed*, never that it is *correct*: it can't tell you the low-price floor actually fires on a $3 stock.
+
+  </Option>
+  <Option name="Dry-run against fixtures" lean>
+
+  Add a policy-fixture format pairing a host snapshot, an overlay YAML stack, an optional override set, and expected component / violation outputs — then a harness that compiles, runs, and asserts. Goldens for low-price floors, concentration, pending-cash, and risk-profile examples. This is what makes policy changes regression-testable: you see the *attribution*, not just the final number. More to build and a corpus to keep current.
+
+  </Option>
+  <Option name="Full authoring tooling">
+
+  The dry-run harness plus a standalone CLI so host teams can run validation outside repo tests, richer lint, and IDE-style ergonomics. Most valuable to a non-Go policy author — but a much larger surface and adjacent to the hosted-service line this epic explicitly draws.
+
+  </Option>
+</Options>
+
+The draft leans on the fixture dry-run as the spine, with lint layered on top — the same restraint the [house overlay](#m15) used elsewhere: prove behavior on a corpus before exposing more surface. The CLI is a follow-on, not a prerequisite.
+
+### What you must settle first
+
+<OpenQuestions>
+
+- Should the harness be a **Go test helper only**, or should there be a small **CLI** so host teams can use it outside repo tests?
+- How aggressive should linting be about **"unused" policy facts**, when some hosts deliberately ship broader snapshots than a given rulebook consumes?
+
+</OpenQuestions>
+
+The second is the subtle one. A naive "this fact is never read, warn" lint is actively wrong for a host whose snapshot is intentionally a superset — shared across rulebooks, or forward-compatible with policy they haven't written yet. Decide whether "unused" is an error, a warning, or opt-in *before* the lint exists, or you will train authors to ignore it.
+
+### Precedents & where it plugs in
+
+- Builds directly on [house overlay & overrides](#m15) — this is the authoring loop *for* that layer, not a change to its semantics — and consumes the override resolution shown in [add-ons in practice](#m25).
+- The fixtures must assert **attribution**, not just final requirement totals — the same discipline the corpus uses everywhere: a right number for the wrong reason is a latent regression.
+- Precedent ADR: `layer3-house-overlay` — it established the overlay as a distinct, raise-only layer with explicit modes (`block`, `max`); this fork inherits those primitives and makes them testable.
+- Planes: **6 — Integration & ops**, **3 — Data plane**.
+
+### How to decide it (the playbook)
+
+Run the [playbook](#m13) against it:
+
+- **Problem type:** workflow / tooling — not a new calculation. The runtime SDK contract stays unchanged; everything here is authoring-time.
+- **Primary new risk:** a **false sense of safety**. A lint that's too loud gets ignored; a fixture corpus that drifts out of sync silently stops gating. The regression gate — *every documented policy snippet must be executable through the harness* — is the thing that keeps it honest.
+- **The oracle you'd need:** policy-fixture goldens for the canonical examples (low-price floors, concentration, pending-cash, risk-profile), each asserting components and violations; lint tests for unreachable `when` clauses, duplicate IDs, and contradictory override stacks; and a CI check that fails when a docs policy snippet isn't covered.
+
+### Self-check
+
+<Reveal q="Why must the fixtures assert attribution, not just the final requirement total?">
+
+Because two different rulebooks can produce the same total for completely different reasons — a concentration add-on masking a missing low-price floor, say. If the golden only checks the final number, an author can refactor policy, break *which* rule fires, and the test stays green. Asserting components and violations pins down the *path* to the number, which is exactly what a policy review needs to trust.
+
+</Reveal>
+
+<Reveal q="Why is the 'unused policy fact' lint a design question and not just an implementation detail?">
+
+Because "unused" is ambiguous by intent. For one host a fact read by no rule is a typo; for another it's a deliberately broad, forward-compatible snapshot shared across rulebooks. The lint can't tell which without a policy decision, so shipping it as a hard error would punish a legitimate pattern. That makes the *aggressiveness* a contract decision to settle up front — not something to tune after authors have already learned to ignore the warning.
+
+</Reveal>
